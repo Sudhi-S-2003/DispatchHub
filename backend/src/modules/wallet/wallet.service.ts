@@ -76,7 +76,7 @@ export class WalletService {
     });
   }
 
-  // Pre-Flight Debit ("Deduct First")
+  // Pre-Flight Debit ("Deduct First") with atomic conditional decrement
   async debitPreflight(
     accountId: string,
     cost: number,
@@ -114,18 +114,32 @@ export class WalletService {
         );
       }
 
-      const balanceAfter = currentBalance.sub(debitAmount);
-
-      const updatedWallet = await tx.wallet.update({
-        where: { id: wallet.id },
-        data: { balance: balanceAfter },
+      // Atomic conditional decrement to eliminate race conditions
+      const updateResult = await tx.wallet.updateMany({
+        where: {
+          id: wallet.id,
+          isLocked: false,
+          balance: { gte: debitAmount },
+        },
+        data: {
+          balance: { decrement: debitAmount },
+        },
       });
+
+      if (updateResult.count === 0) {
+        throw new HttpException(
+          'Wallet balance was modified concurrently. Please retry.',
+          HttpStatus.CONFLICT,
+        );
+      }
+
+      const balanceAfter = currentBalance.sub(debitAmount);
 
       const transaction = await tx.walletTransaction.create({
         data: {
           walletId: wallet.id,
           accountId,
-          amount: debitAmount.negated(), // Negative amount for debits
+          amount: debitAmount.negated(),
           balanceBefore: currentBalance,
           balanceAfter,
           type,
@@ -136,7 +150,7 @@ export class WalletService {
       });
 
       return {
-        wallet: updatedWallet,
+        wallet: { ...wallet, balance: balanceAfter },
         transaction,
       };
     });

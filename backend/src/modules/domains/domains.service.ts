@@ -1,9 +1,15 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { generateDkimKeyPair } from '../../common/utils/dkim.util.js';
 import { encryptSecret } from '../../common/utils/crypto.util.js';
 import { DnsVerificationService } from './dns-verification.service.js';
 import { parseDnsHosts } from '../../common/utils/dns.util.js';
+import { Role } from '@prisma/client';
 
 @Injectable()
 export class DomainsService {
@@ -103,13 +109,17 @@ export class DomainsService {
     };
   }
 
-  async verifyDomain(domainId: string) {
+  async verifyDomain(domainId: string, accountId?: string, userRole?: Role) {
     const domain = await this.prisma.domain.findUnique({
       where: { id: domainId },
     });
 
     if (!domain) {
       throw new NotFoundException('Domain not found');
+    }
+
+    if (userRole && userRole !== Role.ADMIN && domain.accountId !== accountId) {
+      throw new ForbiddenException('You do not have permission to verify this domain');
     }
 
     const check = await this.dnsVerifier.verifyDomain(
@@ -121,16 +131,51 @@ export class DomainsService {
     // If SPF and DKIM are verified, unlock sending
     const isReady = check.isSpfVerified && check.isDkimVerified;
 
-    const updated = await this.prisma.domain.update({
-      where: { id: domainId },
-      data: {
-        isSpfVerified: check.isSpfVerified,
-        isDkimVerified: check.isDkimVerified,
-        isMxVerified: check.isMxVerified,
-        dkimSelector: check.details.dkimSelectorUsed || domain.dkimSelector,
-        status: isReady ? 'ACTIVE' : 'PENDING_VERIFICATION',
-      },
-    });
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.domain.update({
+        where: { id: domainId },
+        data: {
+          isSpfVerified: check.isSpfVerified,
+          isDkimVerified: check.isDkimVerified,
+          isMxVerified: check.isMxVerified,
+          dkimSelector: check.details.dkimSelectorUsed || domain.dkimSelector,
+          status: isReady ? 'ACTIVE' : 'PENDING_VERIFICATION',
+        },
+      }),
+      // Audit record for SPF
+      this.prisma.domainVerification.create({
+        data: {
+          domainId,
+          recordType: 'SPF',
+          expectedValue: domain.spfRecord || 'v=spf1 ... ~all',
+          actualValue: check.details.spfFound || null,
+          status: check.isSpfVerified ? 'PASS' : 'FAIL',
+          errorMessage: check.diagnostics.spf?.message,
+        },
+      }),
+      // Audit record for DKIM
+      this.prisma.domainVerification.create({
+        data: {
+          domainId,
+          recordType: 'DKIM',
+          expectedValue: `k=rsa; p=${domain.dkimPublicKey.substring(0, 30)}...`,
+          actualValue: check.details.dkimFound || null,
+          status: check.isDkimVerified ? 'PASS' : 'FAIL',
+          errorMessage: check.diagnostics.dkim?.message,
+        },
+      }),
+      // Audit record for MX
+      this.prisma.domainVerification.create({
+        data: {
+          domainId,
+          recordType: 'MX',
+          expectedValue: 'MX 10 mail.postal.sudhi.online',
+          actualValue: check.details.mxFound?.join(', ') || null,
+          status: check.isMxVerified ? 'PASS' : 'FAIL',
+          errorMessage: check.diagnostics.mx?.message,
+        },
+      }),
+    ]);
 
     return {
       domain: this.sanitizeDomain(updated),
@@ -139,20 +184,60 @@ export class DomainsService {
     };
   }
 
-  async listDomains(accountId: string) {
+  async listDomains(accountId?: string, userRole?: Role) {
+    let where: any = {};
+    if (userRole === Role.ADMIN) {
+      if (accountId) where.accountId = accountId;
+    } else {
+      where.accountId = accountId;
+    }
+
     const domains = await this.prisma.domain.findMany({
-      where: { accountId },
+      where,
       orderBy: { createdAt: 'desc' },
+      include: {
+        account: {
+          select: { name: true, email: true },
+        },
+      },
     });
     return domains.map((d) => this.sanitizeDomain(d));
   }
 
-  async getDomain(domainId: string) {
+  async getDomain(domainId: string, accountId?: string, userRole?: Role) {
+    const domain = await this.prisma.domain.findUnique({
+      where: { id: domainId },
+      include: {
+        verifications: {
+          orderBy: { checkedAt: 'desc' },
+          take: 10,
+        },
+      },
+    });
+    if (!domain) throw new NotFoundException('Domain not found');
+
+    if (userRole && userRole !== Role.ADMIN && domain.accountId !== accountId) {
+      throw new ForbiddenException('You do not have permission to view this domain');
+    }
+
+    return this.sanitizeDomain(domain);
+  }
+
+  async deleteDomain(domainId: string, accountId: string, userRole?: Role) {
     const domain = await this.prisma.domain.findUnique({
       where: { id: domainId },
     });
     if (!domain) throw new NotFoundException('Domain not found');
-    return this.sanitizeDomain(domain);
+
+    if (userRole && userRole !== Role.ADMIN && domain.accountId !== accountId) {
+      throw new ForbiddenException('You do not have permission to delete this domain');
+    }
+
+    await this.prisma.domain.delete({
+      where: { id: domainId },
+    });
+
+    return { success: true, message: `Domain '${domain.domainName}' successfully removed.` };
   }
 
   async getDecryptedPrivateKey(domainId: string): Promise<string> {

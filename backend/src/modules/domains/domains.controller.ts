@@ -2,68 +2,64 @@ import {
   Controller,
   Get,
   Post,
+  Delete,
   Body,
   Param,
   Query,
-  Headers,
-  UnauthorizedException,
+  UseGuards,
 } from '@nestjs/common';
 import { DomainsService } from './domains.service.js';
-import { AuthService } from '../auth/auth.service.js';
+import { AuthGuard } from '../../common/guards/auth.guard.js';
+import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator.js';
 
 @Controller('api/v1/domains')
+@UseGuards(AuthGuard)
 export class DomainsController {
-  constructor(
-    private domainsService: DomainsService,
-    private authService: AuthService,
-  ) {}
+  constructor(private domainsService: DomainsService) {}
 
   @Post()
   async createDomain(
-    @Body() body: { accountId?: string; domainName?: string; name?: string },
-    @Headers('authorization') authHeader?: string,
-    @Headers('x-api-key') apiKeyHeader?: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: { domainName?: string; name?: string },
   ) {
-    const authResult = await this.authService.validateTokenOrApiKey(authHeader, apiKeyHeader);
-    const targetAccountId = body.accountId || authResult?.account?.id;
-    if (!targetAccountId) {
-      throw new UnauthorizedException('Authentication credentials (JWT or X-API-Key) required');
-    }
-
     const domainName = (body.domainName || body.name || '').trim();
-    const result = await this.domainsService.createDomain(targetAccountId, domainName);
+    const result = await this.domainsService.createDomain(user.id, domainName);
     return { success: true, data: result.domain, dnsInstructions: result.dnsInstructions };
   }
 
   @Post(':id/verify')
-  async verifyDomain(@Param('id') id: string) {
-    const result = await this.domainsService.verifyDomain(id);
+  async verifyDomain(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const result = await this.domainsService.verifyDomain(id, user.id, user.role);
     return { success: true, data: result.domain, verificationCheck: result.verificationCheck };
   }
 
   @Get()
   async listDomains(
+    @CurrentUser() user: AuthenticatedUser,
     @Query('accountId') accountId?: string,
-    @Headers('authorization') authHeader?: string,
-    @Headers('x-api-key') apiKeyHeader?: string,
   ) {
-    const authResult = await this.authService.validateTokenOrApiKey(authHeader, apiKeyHeader);
-    const effectiveAccountId =
-      accountId || (authResult?.account?.role === 'ADMIN' ? undefined : authResult?.account?.id);
-
-    if (!effectiveAccountId && !accountId) {
-      // If admin, return all
-      const allDomains = await this.domainsService.listDomains(authResult?.account?.id || '');
-      return { success: true, data: allDomains };
-    }
-
-    const domains = await this.domainsService.listDomains(effectiveAccountId || accountId || '');
+    const targetAccountId = user.role === 'ADMIN' ? accountId : user.id;
+    const domains = await this.domainsService.listDomains(targetAccountId, user.role);
     return { success: true, data: domains };
   }
 
   @Get(':id')
-  async getDomain(@Param('id') id: string) {
-    const domain = await this.domainsService.getDomain(id);
+  async getDomain(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const domain = await this.domainsService.getDomain(id, user.id, user.role);
     return { success: true, data: domain };
+  }
+
+  @Delete(':id')
+  async deleteDomain(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.domainsService.deleteDomain(id, user.id, user.role);
   }
 }

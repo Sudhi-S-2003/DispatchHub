@@ -1,0 +1,19 @@
+# DispatchHub: Bug Register & Vulnerability Catalog
+
+**Register Version**: 1.0.0  
+**Severity Scale**: CRITICAL, HIGH, MEDIUM, LOW
+
+---
+
+| ID | Title | File / Component | Severity | Root Cause | Impact | Solution |
+| :--- | :--- | :--- | :---: | :--- | :--- | :--- |
+| **BUG-001** | Tenant ID Spoofing | `backend/src/modules/messages/messages.controller.ts` | **CRITICAL** | Route handler accepts `body.accountId` without verifying against authenticated session. | Authenticated client can debit another tenant's wallet and send emails under their identity. | Enforce `accountId` strictly from authenticated `req.user` token; reject client-supplied `accountId`. |
+| **BUG-002** | Cross-Tenant Domain Leakage | `backend/src/modules/messages/messages.service.ts` | **HIGH** | `resolveDomain` falls back to `findFirst({ where: { status: 'ACTIVE' } })` globally if tenant has no active domain. | Tenant with no domain can send emails using another tenant's verified domain without permission. | Scope domain fallback strictly to `accountId: currentAccount.id`. If none, throw `400 Bad Request`. |
+| **BUG-003** | In-Memory Campaign Loop Crash | `backend/src/modules/messages/messages.service.ts` | **HIGH** | Campaigns processed in `setImmediate()` in-memory Node.js event loop. | Any server reload, crash, or deployment drops in-flight campaign batches permanently. | Migrate campaign execution to BullMQ durable Redis queue with persistence in PostgreSQL. |
+| **BUG-004** | Missing Postal Webhook Delivery Processing | Backend / API Routes | **HIGH** | No webhook receiver endpoint exists for Postal delivery events. | Messages stay in `SENT` status forever; `DELIVERED` and `BOUNCED` states are never updated. | Create `WebhooksController` with `POST /api/v1/webhooks/postal` to parse delivery events. |
+| **BUG-005** | Broken Client-Side Metric Calculation | `frontend/src/app/page.tsx` | **HIGH** | Calculates delivery rate from only the first 10 messages fetched via pagination. | Dashboard displays false delivery metrics (e.g. 1% delivery rate on 1,000 sent emails). | Create dedicated `/api/v1/analytics/dashboard` backend aggregation endpoint. |
+| **BUG-006** | Wallet Concurrency Race Condition | `backend/src/modules/wallet/wallet.service.ts` | **HIGH** | `debitPreflight` does not lock the wallet row (`SELECT FOR UPDATE`) before calculating balance. | Rapid concurrent dispatches can overdraft the wallet into negative balances. | Use PostgreSQL row-level locking or atomic decrement (`balance = balance - cost WHERE balance >= cost`). |
+| **BUG-007** | Client-Side Campaign Approvals Filter | `frontend/src/app/admin/approvals/page.tsx` | **MEDIUM** | Fetches first 50 messages and filters in JavaScript for `PENDING_APPROVAL`. | If flagged campaign is not in top 50 messages, it never appears in admin review queue. | Create dedicated `/api/v1/campaigns/pending-approvals` endpoint with server-side pagination. |
+| **BUG-008** | Missing Global DTO Validation Pipe | `backend/src/main.ts` | **MEDIUM** | `app.useGlobalPipes(new ValidationPipe())` is not invoked in bootstrap. | Invalid payload properties bypass validation and are passed directly to services. | Register global `ValidationPipe({ whitelist: true, transform: true })`. |
+| **BUG-009** | Missing Idempotency Key Tracking | `backend/src/modules/wallet/` | **MEDIUM** | `referenceId` in `wallet_transactions` lacks a unique constraint or idempotency table. | Network retries can double-charge customers for the same dispatch. | Add `IdempotencyKey` table with unique constraint and TTL. |
+| **BUG-010** | Zero Unit & Integration Test Coverage | Test Suites | **HIGH** | Only 1 test exists across the entire project (`app.controller.spec.ts`). | Regressions cannot be detected automatically before production deployment. | Build comprehensive test suite for wallet, domains, sharding, and API endpoints. |

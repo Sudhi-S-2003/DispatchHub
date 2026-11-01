@@ -23,14 +23,14 @@ export class MessagesService {
     private contentGuard: ContentGuardService,
   ) {}
 
-  // Flexible Production Sender Domain Resolution
+  // Strict Multi-Tenant Production Sender Domain Resolution
   private async resolveDomain(accountId: string, domainId?: string, sender?: string) {
     if (domainId) {
       const domain = await this.prisma.domain.findFirst({
-        where: { id: domainId },
+        where: { id: domainId, accountId },
       });
       if (!domain) {
-        throw new BadRequestException('Specified sending domain does not exist.');
+        throw new BadRequestException('Specified sending domain does not exist or does not belong to your account.');
       }
       if (domain.status !== 'ACTIVE') {
         throw new BadRequestException(
@@ -40,11 +40,11 @@ export class MessagesService {
       return domain;
     }
 
-    // If sender email specified (e.g. dispatch@mail1.postal.test.sudhi.online), match active domain
+    // If sender email specified, match active domain belonging to this account
     if (sender && sender.includes('@')) {
       const senderDomain = sender.split('@')[1].toLowerCase().trim();
       const domainBySender = await this.prisma.domain.findFirst({
-        where: { domainName: senderDomain, status: 'ACTIVE' },
+        where: { domainName: senderDomain, accountId, status: 'ACTIVE' },
       });
       if (domainBySender) {
         return domainBySender;
@@ -61,18 +61,23 @@ export class MessagesService {
       return activeDomain;
     }
 
-    // Global active domain fallback (e.g., for SuperAdmin API requests)
-    const systemActiveDomain = await this.prisma.domain.findFirst({
-      where: { status: 'ACTIVE' },
-      orderBy: { createdAt: 'asc' },
+    // Fallback: Check if user is an ADMIN, in which case they can use any system active domain
+    const account = await this.prisma.account.findUnique({
+      where: { id: accountId },
+      select: { role: true },
     });
-
-    if (systemActiveDomain) {
-      return systemActiveDomain;
+    if (account?.role === 'ADMIN') {
+      const systemActiveDomain = await this.prisma.domain.findFirst({
+        where: { status: 'ACTIVE' },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (systemActiveDomain) {
+        return systemActiveDomain;
+      }
     }
 
     throw new BadRequestException(
-      'No verified sending domain configured. Please verify SPF, DKIM, and MX DNS records under /domains before dispatching emails.',
+      'No verified sending domain configured for your account. Please add and verify SPF/DKIM DNS records under /domains before dispatching emails.',
     );
   }
 

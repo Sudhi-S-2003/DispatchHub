@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CreateTemplateDto } from './templates.dto.js';
+import { Role } from '@prisma/client';
 
 @Injectable()
 export class TemplatesService {
@@ -40,15 +41,29 @@ export class TemplatesService {
     });
   }
 
-  async getTemplate(templateId: string) {
+  async getTemplate(templateId: string, accountId?: string, userRole?: Role) {
     const template = await this.prisma.template.findUnique({
       where: { id: templateId },
     });
     if (!template) throw new NotFoundException('Template not found');
+
+    if (userRole && userRole !== Role.ADMIN && template.accountId !== accountId) {
+      throw new ForbiddenException('You do not have permission to view this template');
+    }
+
     return template;
   }
 
-  async deleteTemplate(templateId: string) {
+  async deleteTemplate(templateId: string, accountId?: string, userRole?: Role) {
+    const template = await this.prisma.template.findUnique({
+      where: { id: templateId },
+    });
+    if (!template) throw new NotFoundException('Template not found');
+
+    if (userRole && userRole !== Role.ADMIN && template.accountId !== accountId) {
+      throw new ForbiddenException('You do not have permission to delete this template');
+    }
+
     return this.prisma.template.delete({
       where: { id: templateId },
     });

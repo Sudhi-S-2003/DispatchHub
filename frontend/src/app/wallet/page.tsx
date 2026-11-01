@@ -52,6 +52,7 @@ export default function WalletPage() {
   };
 
   const fetchAccounts = async () => {
+    if (user?.role !== 'ADMIN') return;
     try {
       const res = await accountsApi.list({ limit: 100 });
       if (res && res.data) {
@@ -67,8 +68,10 @@ export default function WalletPage() {
 
   useEffect(() => {
     fetchLedger();
-    fetchAccounts();
-  }, [page, limit]);
+    if (user?.role === 'ADMIN') {
+      fetchAccounts();
+    }
+  }, [page, limit, user]);
 
   const handleTopUpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

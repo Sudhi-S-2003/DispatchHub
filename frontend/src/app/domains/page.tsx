@@ -17,6 +17,7 @@ import {
   Zap,
   AlertTriangle,
   Info,
+  Trash2,
 } from 'lucide-react';
 
 // Well-known 2-part ccSLDs (e.g., .co.uk, .com.au, .co.in)
@@ -204,6 +205,23 @@ export default function DomainsPage() {
     }
   };
 
+  const handleDeleteDomain = async (id: string, name: string) => {
+    if (!window.confirm(`Are you sure you want to remove domain '${name}'?`)) return;
+    try {
+      await domainsApi.delete(id);
+      setNotice({
+        success: true,
+        text: `Domain ${name} successfully removed.`,
+      });
+      fetchDomains();
+    } catch (err: any) {
+      setNotice({
+        success: false,
+        text: err.message || 'Failed to delete domain.',
+      });
+    }
+  };
+
   const copyToClipboard = async (text: string, keyId: string) => {
     const ok = await copyTextToClipboard(text);
     if (ok) {
@@ -372,14 +390,24 @@ export default function DomainsPage() {
                     </div>
                   </div>
 
-                  <button
-                    onClick={() => handleVerifyDns(dom.id, domainName)}
-                    disabled={verifyingId === dom.id}
-                    className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow transition shrink-0"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${verifyingId === dom.id ? 'animate-spin' : ''}`} />
-                    <span>{verifyingId === dom.id ? 'Checking DNS...' : 'Verify Live Public DNS'}</span>
-                  </button>
+                  <div className="flex items-center space-x-2 shrink-0">
+                    <button
+                      onClick={() => handleVerifyDns(dom.id, domainName)}
+                      disabled={verifyingId === dom.id}
+                      className="flex items-center space-x-2 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow transition"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${verifyingId === dom.id ? 'animate-spin' : ''}`} />
+                      <span>{verifyingId === dom.id ? 'Checking...' : 'Verify Live DNS'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteDomain(dom.id, domainName)}
+                      className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg border border-slate-800 transition"
+                      title="Remove Domain"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Real-time Diagnostics Inspector */}

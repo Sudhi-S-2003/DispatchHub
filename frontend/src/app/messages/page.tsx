@@ -180,7 +180,7 @@ export default function MessagesPage() {
                 messages.map((msg) => (
                   <tr key={msg.id} className="hover:bg-slate-850/60 transition group">
                     <td className="px-5 py-3.5 font-medium text-slate-200">
-                      <div>{msg.to}</div>
+                      <div>{msg.recipient || msg.to}</div>
                       {msg.campaignId && (
                         <div className="text-[10px] text-slate-500 font-mono truncate max-w-[120px]">
                           Campaign: {msg.campaignId.slice(0, 8)}...
@@ -194,13 +194,13 @@ export default function MessagesPage() {
                       </span>
                     </td>
                     <td className="px-5 py-3.5 font-mono text-emerald-400 font-semibold">
-                      ${Number(msg.cost).toFixed(3)}
+                      ${Number(msg.cost || 0).toFixed(3)}
                     </td>
                     <td className="px-5 py-3.5 font-mono text-slate-400 text-[11px]">
-                      <div>{msg.shardKey || 'queue:priority'}</div>
-                      {msg.mtaMessageId && (
+                      <div>{msg.assignedShard !== undefined ? `shard-${msg.assignedShard}` : (msg.shardKey || 'queue:priority')}</div>
+                      {(msg.postalMessageId || msg.mtaMessageId) && (
                         <div className="text-[10px] text-slate-500 truncate max-w-[100px]">
-                          ID: {msg.mtaMessageId}
+                          ID: {msg.postalMessageId || msg.mtaMessageId}
                         </div>
                       )}
                     </td>

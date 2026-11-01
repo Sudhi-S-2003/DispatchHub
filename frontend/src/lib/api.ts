@@ -81,6 +81,11 @@ export const authApi = {
   getMe: () => request<any>('/auth/me'),
 };
 
+// Analytics API
+export const analyticsApi = {
+  getDashboard: () => request<any>('/analytics/dashboard'),
+};
+
 // Accounts API
 export const accountsApi = {
   list: (params?: { page?: number; limit?: number; search?: string }) => {
@@ -113,6 +118,10 @@ export const domainsApi = {
   verify: (id: string) =>
     request<any>(`/domains/${id}/verify`, {
       method: 'POST',
+    }),
+  delete: (id: string) =>
+    request<any>(`/domains/${id}`, {
+      method: 'DELETE',
     }),
 };
 
@@ -147,6 +156,40 @@ export const templatesApi = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+  delete: (id: string) =>
+    request<any>(`/templates/${id}`, {
+      method: 'DELETE',
+    }),
+};
+
+// Campaigns API
+export const campaignsApi = {
+  list: (params?: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    category?: string;
+    search?: string;
+  }) => {
+    const query = new URLSearchParams();
+    if (params?.page) query.set('page', params.page.toString());
+    if (params?.limit) query.set('limit', params.limit.toString());
+    if (params?.status) query.set('status', params.status);
+    if (params?.category) query.set('category', params.category);
+    if (params?.search) query.set('search', params.search);
+    return request<any>(`/campaigns?${query.toString()}`);
+  },
+  getPendingApprovals: (params?: { page?: number; limit?: number }) => {
+    const query = new URLSearchParams();
+    if (params?.page) query.set('page', params.page.toString());
+    if (params?.limit) query.set('limit', params.limit.toString());
+    return request<any>(`/campaigns/pending-approvals?${query.toString()}`);
+  },
+  getCampaign: (id: string) => request<any>(`/campaigns/${id}`),
+  pause: (id: string) =>
+    request<any>(`/campaigns/${id}/pause`, { method: 'POST' }),
+  resume: (id: string) =>
+    request<any>(`/campaigns/${id}/resume`, { method: 'POST' }),
 };
 
 // Messages & Campaigns API
@@ -225,15 +268,23 @@ export const messagesApi = {
 // Wallet API
 export const walletApi = {
   getBalance: () => request<any>('/wallet/balance'),
-  getLedger: (params?: { page?: number; limit?: number }) => {
+  getLedger: (params?: { page?: number; limit?: number; type?: string }) => {
     const query = new URLSearchParams();
     if (params?.page) query.set('page', params.page.toString());
     if (params?.limit) query.set('limit', params.limit.toString());
+    if (params?.type) query.set('type', params.type);
     return request<any>(`/wallet/ledger?${query.toString()}`);
   },
-  topUp: (accountId: string, amount: number, description?: string) =>
+  getAllTransactions: (params?: { page?: number; limit?: number; type?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.page) query.set('page', params.page.toString());
+    if (params?.limit) query.set('limit', params.limit.toString());
+    if (params?.type) query.set('type', params.type);
+    return request<any>(`/wallet/admin/all-transactions?${query.toString()}`);
+  },
+  topUp: (targetAccountId: string, amount: number, description?: string) =>
     request<any>('/wallet/topup', {
       method: 'POST',
-      body: JSON.stringify({ accountId, amount, description }),
+      body: JSON.stringify({ targetAccountId, amount, description }),
     }),
 };

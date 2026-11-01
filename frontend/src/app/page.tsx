@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
-import { messagesApi, walletApi } from '@/lib/api';
+import { analyticsApi } from '@/lib/api';
 import {
   Send,
   MailCheck,
@@ -12,38 +12,35 @@ import {
   Zap,
   Layers,
   ArrowUpRight,
-  ShieldAlert,
+  ShieldCheck,
   Clock,
   CheckCircle2,
   AlertCircle,
   ExternalLink,
+  RefreshCw,
+  Globe,
 } from 'lucide-react';
 
 export default function DashboardPage() {
   const { user, refreshAccount } = useAuth();
-  const [messages, setMessages] = useState<any[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
-  const [deliveredCount, setDeliveredCount] = useState(0);
-  const [bouncedCount, setBouncedCount] = useState(0);
+  const [analytics, setAnalytics] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchDashboardData = async () => {
     setIsLoading(true);
+    setError(null);
     try {
-      const res = await messagesApi.list({ page: 1, limit: 10 });
+      const res = await analyticsApi.getDashboard();
       if (res && res.data) {
-        setMessages(res.data);
-        setTotalCount(res.meta?.total || 0);
-
-        // Calculate counts
-        const delivered = res.data.filter((m: any) => m.status === 'DELIVERED').length;
-        const bounced = res.data.filter((m: any) => m.status === 'BOUNCED').length;
-        setDeliveredCount(delivered);
-        setBouncedCount(bounced);
+        setAnalytics(res.data);
+      } else if (res) {
+        setAnalytics(res);
       }
       await refreshAccount();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to load dashboard data:', err);
+      setError(err.message || 'Failed to connect to analytics service');
     } finally {
       setIsLoading(false);
     }
@@ -53,7 +50,18 @@ export default function DashboardPage() {
     fetchDashboardData();
   }, []);
 
-  const deliveryRate = totalCount > 0 ? ((deliveredCount / totalCount) * 100).toFixed(1) : '100.0';
+  const summary = analytics?.summary || {
+    totalVolume: 0,
+    deliveredCount: 0,
+    bouncedCount: 0,
+    inFlightCount: 0,
+    deliveryRate: 100,
+    bounceRate: 0,
+    totalSpend: 0,
+    activeDomains: 0,
+  };
+
+  const recentMessages = analytics?.recentMessages || [];
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto">
@@ -66,9 +74,17 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="flex items-center space-x-3">
+          <button
+            onClick={fetchDashboardData}
+            disabled={isLoading}
+            className="inline-flex items-center space-x-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium rounded-lg border border-slate-700 transition"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+            <span>Sync Telemetry</span>
+          </button>
           <Link
             href="/compose"
-            className="inline-flex items-center space-x-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-lg shadow-lg shadow-indigo-600/20 transition"
+            className="inline-flex items-center space-x-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-lg shadow-lg shadow-indigo-600/20 transition"
           >
             <Send className="w-4 h-4" />
             <span>Launch Send Studio</span>
@@ -76,12 +92,27 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {error && (
+        <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-400 text-sm flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <AlertCircle className="w-4 h-4" />
+            <span>{error}</span>
+          </div>
+          <button
+            onClick={fetchDashboardData}
+            className="underline hover:text-rose-300 text-xs font-semibold"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* KPI Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         {/* Wallet Balance Card */}
         <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm relative overflow-hidden">
           <div className="flex items-center justify-between text-slate-400">
-            <span className="text-xs font-semibold uppercase tracking-wider">Wallet Balance</span>
+            <span className="text-xs font-semibold uppercase tracking-wider">Treasury Balance</span>
             <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
               <Wallet className="w-4 h-4" />
             </div>
@@ -93,14 +124,14 @@ export default function DashboardPage() {
           </div>
           <div className="mt-3 flex items-center justify-between text-xs">
             <span className="text-slate-500">Atomic "Deduct First"</span>
-            <Link href="/wallet" className="text-indigo-400 hover:underline flex items-center space-x-0.5">
+            <Link href="/wallet" className="text-indigo-400 hover:underline flex items-center space-x-0.5 font-medium">
               <span>Top Up</span>
               <ArrowUpRight className="w-3 h-3" />
             </Link>
           </div>
         </div>
 
-        {/* Total Messages Sent */}
+        {/* Total Messages Dispatched */}
         <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm relative overflow-hidden">
           <div className="flex items-center justify-between text-slate-400">
             <span className="text-xs font-semibold uppercase tracking-wider">Total Dispatched</span>
@@ -110,48 +141,56 @@ export default function DashboardPage() {
           </div>
           <div className="mt-3">
             <span className="text-3xl font-extrabold text-white font-mono tracking-tight">
-              {totalCount.toLocaleString()}
+              {isLoading ? '...' : summary.totalVolume.toLocaleString()}
             </span>
           </div>
-          <div className="mt-3 flex items-center text-xs text-slate-500">
-            <span>Zero send limits, only balance limit</span>
+          <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
+            <span>Delivered: <strong className="text-slate-300 font-mono">{summary.deliveredCount}</strong></span>
+            <span>Spend: <strong className="text-emerald-400 font-mono">${summary.totalSpend.toFixed(3)}</strong></span>
           </div>
         </div>
 
         {/* Delivery Rate */}
         <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm relative overflow-hidden">
           <div className="flex items-center justify-between text-slate-400">
-            <span className="text-xs font-semibold uppercase tracking-wider">Delivery Rate</span>
+            <span className="text-xs font-semibold uppercase tracking-wider">Delivery SLA</span>
             <div className="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center">
               <TrendingUp className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-3">
             <span className="text-3xl font-extrabold text-white font-mono tracking-tight">
-              {deliveryRate}%
+              {isLoading ? '...' : `${summary.deliveryRate}%`}
             </span>
           </div>
-          <div className="mt-3 flex items-center text-xs text-slate-500">
-            <span>Postal MTA & Webhook tracking</span>
+          <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
+            <span>Postal Webhook Receipt</span>
+            <span className="text-rose-400 font-mono font-medium">{summary.bouncedCount} Bounces</span>
           </div>
         </div>
 
-        {/* Sharded Queue Status */}
+        {/* Sending Domains */}
         <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm relative overflow-hidden">
           <div className="flex items-center justify-between text-slate-400">
-            <span className="text-xs font-semibold uppercase tracking-wider">Telinfy Sharding</span>
+            <span className="text-xs font-semibold uppercase tracking-wider">Sending Domains</span>
             <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center">
-              <Layers className="w-4 h-4" />
+              <Globe className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-3 flex items-center space-x-2">
-            <span className="text-2xl font-extrabold text-white font-mono">4 Shards</span>
+            <span className="text-3xl font-extrabold text-white font-mono">
+              {isLoading ? '...' : summary.activeDomains}
+            </span>
             <span className="px-2 py-0.5 text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 rounded-full border border-emerald-500/20">
-              Balanced
+              Verified
             </span>
           </div>
-          <div className="mt-3 flex items-center text-xs text-slate-500">
-            <span>CRC32 Domain Hash Routing</span>
+          <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
+            <span>SPF / DKIM / MX Bound</span>
+            <Link href="/domains" className="text-indigo-400 hover:underline flex items-center space-x-0.5">
+              <span>Manage</span>
+              <ArrowUpRight className="w-3 h-3" />
+            </Link>
           </div>
         </div>
       </div>
@@ -165,7 +204,7 @@ export default function DashboardPage() {
             <span>Redis Shard Topologies</span>
           </h2>
           <div className="mt-4 space-y-3">
-            {['queue:shard:0', 'queue:shard:1', 'queue:shard:2', 'queue:shard:3'].map((shard, idx) => (
+            {['queue:shard:0', 'queue:shard:1', 'queue:shard:2', 'queue:shard:3'].map((shard) => (
               <div key={shard} className="flex items-center justify-between p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
                 <div className="flex items-center space-x-2.5">
                   <div className="w-2 h-2 rounded-full bg-emerald-400"></div>
@@ -191,7 +230,7 @@ export default function DashboardPage() {
               <Zap className="w-4 h-4 text-amber-400" />
               <span>Dual-Branding Rate Economics</span>
             </h2>
-            <span className="text-xs text-slate-400">Auto-deducted per send</span>
+            <span className="text-xs text-slate-400">Pre-flight deducted per send</span>
           </div>
 
           <div className="mt-4 overflow-hidden rounded-xl border border-slate-800">
@@ -203,7 +242,7 @@ export default function DashboardPage() {
                     White-Label <span className="font-normal text-slate-500">(100% Private)</span>
                   </th>
                   <th className="px-4 py-3 text-left font-semibold text-slate-400">
-                    Co-Branded <span className="font-normal text-indigo-400 font-semibold">(50% OFF + Watermark)</span>
+                    Co-Branded <span className="font-normal text-indigo-400 font-semibold">(50% OFF)</span>
                   </th>
                   <th className="px-4 py-3 text-left font-semibold text-slate-400">SLA Priority</th>
                 </tr>
@@ -231,7 +270,7 @@ export default function DashboardPage() {
                   <td className="px-4 py-2.5 font-sans font-semibold text-white">TEST DISPATCH</td>
                   <td className="px-4 py-2.5 text-slate-300">$0.010</td>
                   <td className="px-4 py-2.5 text-emerald-400 font-semibold">$0.010</td>
-                  <td className="px-4 py-2.5 text-slate-400 font-sans text-[11px]">Mock/Live MTA</td>
+                  <td className="px-4 py-2.5 text-slate-400 font-sans text-[11px]">Direct Transit</td>
                 </tr>
               </tbody>
             </table>
@@ -248,7 +287,7 @@ export default function DashboardPage() {
         <div className="p-6 border-b border-slate-800 flex items-center justify-between">
           <div>
             <h2 className="text-base font-bold text-white">Recent Dispatches</h2>
-            <p className="text-xs text-slate-400 mt-0.5">Latest transactional & campaign messages dispatched through shards.</p>
+            <p className="text-xs text-slate-400 mt-0.5">Live message logs with real-time Postal MTA delivery confirmations.</p>
           </div>
           <Link
             href="/messages"
@@ -274,31 +313,39 @@ export default function DashboardPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800 bg-slate-900/40">
-              {messages.length === 0 ? (
+              {recentMessages.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-8 text-center text-slate-500">
-                    No dispatches recorded yet. Use the Send Studio to dispatch your first message!
+                  <td colSpan={8} className="px-6 py-10 text-center text-slate-500">
+                    {isLoading ? 'Loading dispatches...' : 'No dispatches recorded yet. Use the Send Studio to dispatch your first message!'}
                   </td>
                 </tr>
               ) : (
-                messages.map((msg) => (
+                recentMessages.map((msg: any) => (
                   <tr key={msg.id} className="hover:bg-slate-850/50 transition">
-                    <td className="px-6 py-3.5 font-medium text-slate-200">{msg.to}</td>
-                    <td className="px-6 py-3.5 text-slate-400 max-w-xs truncate">{msg.subject}</td>
+                    <td className="px-6 py-3.5 font-medium text-slate-200">
+                      {msg.recipient || msg.to}
+                    </td>
+                    <td className="px-6 py-3.5 text-slate-400 max-w-xs truncate">
+                      {msg.subject}
+                    </td>
                     <td className="px-6 py-3.5">
                       <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-800 text-slate-300 border border-slate-700">
                         {msg.category}
                       </span>
                     </td>
                     <td className="px-6 py-3.5">
-                      {msg.isCoBranded ? (
+                      {msg.brandingMode === 'CO_BRANDED' || msg.isCoBranded ? (
                         <span className="text-[10px] text-indigo-400 font-medium">Co-Branded</span>
                       ) : (
                         <span className="text-[10px] text-slate-400 font-medium">White-Label</span>
                       )}
                     </td>
-                    <td className="px-6 py-3.5 font-mono text-emerald-400">${Number(msg.cost).toFixed(3)}</td>
-                    <td className="px-6 py-3.5 font-mono text-slate-400">{msg.shardKey || 'direct'}</td>
+                    <td className="px-6 py-3.5 font-mono text-emerald-400">
+                      ${Number(msg.cost || 0).toFixed(3)}
+                    </td>
+                    <td className="px-6 py-3.5 font-mono text-slate-400">
+                      shard-{msg.assignedShard ?? '0'}
+                    </td>
                     <td className="px-6 py-3.5">
                       <span
                         className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-semibold ${

@@ -1,12 +1,28 @@
-import { Controller, Get, Post, Body, Param, NotFoundException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  NotFoundException,
+  ForbiddenException,
+  UseGuards,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { Role } from '@prisma/client';
+import { AuthGuard } from '../../common/guards/auth.guard.js';
+import { RolesGuard } from '../../common/guards/roles.guard.js';
+import { Roles } from '../../common/decorators/roles.decorator.js';
+import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator.js';
 
 @Controller('api/v1/accounts')
+@UseGuards(AuthGuard)
 export class AccountsController {
   constructor(private prisma: PrismaService) {}
 
   @Get()
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN)
   async listAccounts() {
     return this.prisma.account.findMany({
       include: {
@@ -20,7 +36,14 @@ export class AccountsController {
   }
 
   @Get(':id')
-  async getAccount(@Param('id') id: string) {
+  async getAccount(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    if (user.role !== Role.ADMIN && user.id !== id) {
+      throw new ForbiddenException('You do not have permission to view this account');
+    }
+
     const account = await this.prisma.account.findUnique({
       where: { id },
       include: {
@@ -34,6 +57,8 @@ export class AccountsController {
   }
 
   @Post()
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN)
   async createAccount(
     @Body()
     body: {
