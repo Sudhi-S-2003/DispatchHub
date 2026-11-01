@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { campaignsApi, messagesApi } from '@/lib/api';
+import { useDialog, useToast, Dialog, EmptyState, LoadingState } from '@/components/ui';
 import {
   ShieldAlert,
   CheckCircle2,
@@ -18,16 +19,20 @@ import {
   DollarSign,
   ChevronLeft,
   ChevronRight,
+  Send,
 } from 'lucide-react';
 
 export default function AdminApprovalsPage() {
   const { user } = useAuth();
+  const { confirm } = useDialog();
+  const toast = useToast();
+
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [pagination, setPagination] = useState({ page: 1, limit: 10, totalPages: 1, total: 0 });
   const [loading, setLoading] = useState(true);
-  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [rejectingCampaign, setRejectingCampaign] = useState<any | null>(null);
   const [rejectReason, setRejectReason] = useState('Campaign content violation: missing valid unsubscribe footer or policy terms.');
-  const [notice, setNotice] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const fetchCampaigns = async (page: number = 1) => {
     setLoading(true);
@@ -46,6 +51,7 @@ export default function AdminApprovalsPage() {
       }
     } catch (err: any) {
       console.error('Failed to load pending campaigns:', err);
+      toast.error(err.message || 'Failed to load pending campaign queue');
     } finally {
       setLoading(false);
     }
@@ -57,24 +63,38 @@ export default function AdminApprovalsPage() {
     }
   }, [user]);
 
-  const handleApprove = async (campaignId: string) => {
+  const handleApprove = async (camp: any) => {
+    const confirmed = await confirm({
+      title: `Approve Campaign "${camp.name || camp.subject}"?`,
+      description: `This will dispatch ${camp.totalRecipients} emails across sharded queues. Total deducted cost: $${Number(camp.totalCostDeducted || 0).toFixed(3)}.`,
+      confirmText: 'Approve & Dispatch',
+      cancelText: 'Cancel',
+      variant: 'default',
+    });
+
+    if (!confirmed) return;
+
     try {
-      await messagesApi.approveCampaign(campaignId);
-      setNotice(`Campaign ${campaignId} approved! Dispatched to lookahead shard queues.`);
+      await messagesApi.approveCampaign(camp.id);
+      toast.success(`Campaign "${camp.name || camp.id}" approved! Dispatched to lookahead shard queues.`);
       fetchCampaigns(pagination.page);
     } catch (err: any) {
-      alert(err.message || 'Approval failed');
+      toast.error(err.message || 'Approval failed');
     }
   };
 
-  const handleReject = async (campaignId: string) => {
+  const handleConfirmReject = async () => {
+    if (!rejectingCampaign) return;
+    setIsProcessing(true);
     try {
-      await messagesApi.rejectCampaign(campaignId, rejectReason);
-      setNotice(`Campaign ${campaignId} rejected. 100% wallet credits automatically refunded.`);
-      setRejectingId(null);
+      await messagesApi.rejectCampaign(rejectingCampaign.id, rejectReason);
+      toast.success(`Campaign "${rejectingCampaign.name || rejectingCampaign.id}" rejected. 100% wallet credits automatically refunded to client.`);
+      setRejectingCampaign(null);
       fetchCampaigns(pagination.page);
     } catch (err: any) {
-      alert(err.message || 'Rejection failed');
+      toast.error(err.message || 'Rejection failed');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -107,27 +127,16 @@ export default function AdminApprovalsPage() {
         </div>
       </div>
 
-      {notice && (
-        <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center space-x-2">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-          <span>{notice}</span>
-        </div>
-      )}
-
       {/* Approvals List */}
       <div className="space-y-4">
         {loading ? (
-          <div className="p-12 text-center text-slate-500 text-sm bg-slate-900 rounded-2xl border border-slate-800">
-            Scanning pending campaign queue...
-          </div>
+          <LoadingState label="Scanning pending campaign queue..." />
         ) : campaigns.length === 0 ? (
-          <div className="p-12 text-center text-slate-500 text-sm bg-slate-900 rounded-2xl border border-slate-800 flex flex-col items-center">
-            <CheckCircle2 className="w-10 h-10 text-emerald-400 mb-2" />
-            <span className="font-semibold text-slate-300">Approval Queue is Clear</span>
-            <span className="text-xs text-slate-500 mt-1">
-              All campaigns have met automated compliance or have been evaluated.
-            </span>
-          </div>
+          <EmptyState
+            icon={<CheckCircle2 className="w-6 h-6 text-emerald-400" />}
+            title="Approval Queue is Clear"
+            description="All scheduled campaigns have satisfied automated compliance rules or have been reviewed."
+          />
         ) : (
           campaigns.map((camp) => (
             <div
@@ -161,14 +170,14 @@ export default function AdminApprovalsPage() {
 
               <div className="flex items-center space-x-3 shrink-0">
                 <button
-                  onClick={() => handleApprove(camp.id)}
+                  onClick={() => handleApprove(camp)}
                   className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow-lg shadow-emerald-600/20 flex items-center space-x-1.5 transition"
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   <span>Approve & Dispatch</span>
                 </button>
                 <button
-                  onClick={() => setRejectingId(camp.id)}
+                  onClick={() => setRejectingCampaign(camp)}
                   className="px-4 py-2.5 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 text-xs font-semibold rounded-lg flex items-center space-x-1.5 transition"
                 >
                   <RotateCcw className="w-4 h-4 text-rose-400" />
@@ -203,46 +212,49 @@ export default function AdminApprovalsPage() {
         </div>
       )}
 
-      {/* Reject Modal */}
-      {rejectingId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl">
-            <h3 className="text-base font-bold text-white flex items-center space-x-2">
-              <RotateCcw className="w-4 h-4 text-rose-400" />
-              <span>Confirm Campaign Rejection</span>
-            </h3>
-            <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-              Rejecting this campaign will halt dispatch and execute an <b>instant 100% wallet credit refund</b> back to the client account.
-            </p>
-
-            <div className="mt-4">
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Rejection Reason</label>
+      {/* Reusable Dialog for Rejection Reason */}
+      {rejectingCampaign && (
+        <Dialog
+          isOpen={Boolean(rejectingCampaign)}
+          onClose={() => !isProcessing && setRejectingCampaign(null)}
+          title="Confirm Campaign Rejection & Refund"
+          description={`Rejecting "${rejectingCampaign.name || rejectingCampaign.subject}" will immediately halt delivery and trigger an automated 100% wallet credit refund ($${Number(rejectingCampaign.totalCostDeducted || 0).toFixed(3)}) to the client account.`}
+        >
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                Rejection Policy Reason
+              </label>
               <textarea
                 rows={3}
                 value={rejectReason}
                 onChange={(e) => setRejectReason(e.target.value)}
-                className="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:ring-2 focus:ring-rose-500"
+                className="w-full p-3 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:ring-2 focus:ring-rose-500"
+                placeholder="Specify compliance violation or terms breach..."
               />
             </div>
 
-            <div className="flex justify-end space-x-3 pt-4 border-t border-slate-800 mt-4">
+            <div className="flex justify-end space-x-2.5 pt-3 border-t border-slate-800">
               <button
                 type="button"
-                onClick={() => setRejectingId(null)}
-                className="px-4 py-2 bg-slate-800 text-slate-300 text-xs font-medium rounded-lg hover:bg-slate-700 transition"
+                disabled={isProcessing}
+                onClick={() => setRejectingCampaign(null)}
+                className="px-4 py-2 bg-slate-800 text-slate-300 hover:text-white text-xs font-semibold rounded-lg hover:bg-slate-700 transition"
               >
                 Cancel
               </button>
               <button
                 type="button"
-                onClick={() => handleReject(rejectingId)}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold rounded-lg shadow transition"
+                disabled={isProcessing}
+                onClick={handleConfirmReject}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold rounded-lg shadow-lg shadow-rose-600/20 transition flex items-center space-x-1.5"
               >
-                Reject & Issue Refund
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>{isProcessing ? 'Processing Refund...' : 'Reject & Issue 100% Refund'}</span>
               </button>
             </div>
           </div>
-        </div>
+        </Dialog>
       )}
     </div>
   );

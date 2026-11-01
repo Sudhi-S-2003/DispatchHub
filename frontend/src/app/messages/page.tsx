@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { messagesApi } from '@/lib/api';
 import { GmailPreview } from '@/components/GmailPreview';
+import { useToast, Dialog } from '@/components/ui';
 import {
   Mail,
   Search,
@@ -23,6 +24,7 @@ import {
 } from 'lucide-react';
 
 export default function MessagesPage() {
+  const toast = useToast();
   const [messages, setMessages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -268,62 +270,48 @@ export default function MessagesPage() {
 
       {/* Message Inspection Drawer / Modal */}
       {selectedMessage && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-4xl max-h-[92vh] overflow-hidden flex flex-col shadow-2xl">
-            {/* Modal Header */}
-            <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
-                  <Mail className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-white flex items-center gap-2">
-                    Message Inspector
-                    <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                      {selectedMessage.status}
-                    </span>
-                  </h3>
-                  <p className="text-xs text-slate-400 font-mono mt-0.5">ID: {selectedMessage.id}</p>
-                </div>
-              </div>
-
-              <div className="flex items-center space-x-2">
-                <div className="inline-flex rounded-lg bg-slate-900 p-0.5 border border-slate-800 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => setModalTab('preview')}
-                    className={`px-3 py-1.5 rounded-md font-medium transition ${
-                      modalTab === 'preview'
-                        ? 'bg-indigo-600 text-white'
-                        : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    Gmail UI Preview
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setModalTab('metadata')}
-                    className={`px-3 py-1.5 rounded-md font-medium transition ${
-                      modalTab === 'metadata'
-                        ? 'bg-indigo-600 text-white'
-                        : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    Audit Details & Diagnostics
-                  </button>
-                </div>
-
+        <Dialog
+          isOpen={Boolean(selectedMessage)}
+          onClose={() => setSelectedMessage(null)}
+          title={`Message Inspector: ${selectedMessage.subject || selectedMessage.id}`}
+          description={`Recipient: ${selectedMessage.recipient || selectedMessage.to} | Status: ${selectedMessage.status}`}
+          maxWidth="xl"
+        >
+          <div className="space-y-4">
+            {/* View Switcher */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="inline-flex rounded-lg bg-slate-950 p-1 border border-slate-800 text-xs">
                 <button
-                  onClick={() => setSelectedMessage(null)}
-                  className="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition"
+                  type="button"
+                  onClick={() => setModalTab('preview')}
+                  className={`px-3 py-1.5 rounded-md font-medium transition ${
+                    modalTab === 'preview'
+                      ? 'bg-indigo-600 text-white shadow'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
                 >
-                  <X className="w-4 h-4" />
+                  Gmail UI Preview
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModalTab('metadata')}
+                  className={`px-3 py-1.5 rounded-md font-medium transition ${
+                    modalTab === 'metadata'
+                      ? 'bg-indigo-600 text-white shadow'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Audit Details & Diagnostics
                 </button>
               </div>
+
+              <span className="text-xs font-mono text-slate-400">
+                Cost: <strong className="text-emerald-400">${Number(selectedMessage.cost || 0).toFixed(3)}</strong>
+              </span>
             </div>
 
             {/* Modal Content */}
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-950">
+            <div className="overflow-y-auto max-h-[65vh]">
               {modalTab === 'preview' ? (
                 <GmailPreview
                   sender={selectedMessage.sender || 'dispatch@mail1.postal.test.sudhi.online'}
@@ -343,7 +331,7 @@ export default function MessagesPage() {
                 />
               ) : (
                 <div className="space-y-4 text-xs">
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 p-4 rounded-xl bg-slate-900 border border-slate-800">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 p-4 rounded-xl bg-slate-950 border border-slate-800">
                     <div>
                       <span className="text-slate-500 font-medium">Sender:</span>
                       <p className="font-semibold text-slate-200 mt-0.5 truncate">{selectedMessage.sender || 'System Default'}</p>
@@ -388,7 +376,7 @@ export default function MessagesPage() {
 
                   <div>
                     <span className="text-slate-400 font-semibold block mb-1">Subject</span>
-                    <div className="p-3 bg-slate-900 rounded-lg border border-slate-800 text-slate-200">
+                    <div className="p-3 bg-slate-950 rounded-lg border border-slate-800 text-slate-200">
                       {selectedMessage.subject}
                     </div>
                   </div>
@@ -398,7 +386,7 @@ export default function MessagesPage() {
                       <span className="text-slate-400 font-semibold block mb-1">Attachments</span>
                       <div className="space-y-1">
                         {selectedMessage.attachments.map((att: any, idx: number) => (
-                          <div key={idx} className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 font-mono text-indigo-300 flex items-center justify-between">
+                          <div key={idx} className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 font-mono text-indigo-300 flex items-center justify-between">
                             <span>{att.filename}</span>
                             <span className="text-slate-500 text-[11px] truncate max-w-xs">{att.url}</span>
                           </div>
@@ -409,7 +397,7 @@ export default function MessagesPage() {
 
                   <div>
                     <span className="text-slate-400 font-semibold block mb-1">Raw HTML Source</span>
-                    <pre className="p-3 bg-slate-900 rounded-lg border border-slate-800 text-slate-400 font-mono text-[11px] overflow-x-auto max-h-48">
+                    <pre className="p-3 bg-slate-950 rounded-lg border border-slate-800 text-slate-400 font-mono text-[11px] overflow-x-auto max-h-48">
                       {selectedMessage.htmlBody || '<p>No HTML body</p>'}
                     </pre>
                   </div>
@@ -418,8 +406,9 @@ export default function MessagesPage() {
             </div>
 
             {/* Modal Footer */}
-            <div className="p-4 bg-slate-950 border-t border-slate-800 flex justify-end">
+            <div className="pt-3 border-t border-slate-800 flex justify-end">
               <button
+                type="button"
                 onClick={() => setSelectedMessage(null)}
                 className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium rounded-lg transition text-xs"
               >
@@ -427,8 +416,7 @@ export default function MessagesPage() {
               </button>
             </div>
           </div>
-        </div>
-      )}
+        </Dialog>
       )}
     </div>
   );

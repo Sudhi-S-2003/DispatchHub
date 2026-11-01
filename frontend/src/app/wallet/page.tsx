@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { walletApi, accountsApi } from '@/lib/api';
+import { useToast, Dialog, EmptyState, LoadingState } from '@/components/ui';
 import {
   Wallet,
   ArrowUpRight,
@@ -20,6 +21,8 @@ import {
 
 export default function WalletPage() {
   const { user, refreshAccount } = useAuth();
+  const toast = useToast();
+
   const [ledger, setLedger] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -33,7 +36,6 @@ export default function WalletPage() {
   const [targetAccountId, setTargetAccountId] = useState('');
   const [allAccounts, setAllAccounts] = useState<any[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [successNotice, setSuccessNotice] = useState<string | null>(null);
 
   const fetchLedger = async () => {
     setLoading(true);
@@ -44,8 +46,9 @@ export default function WalletPage() {
         setMeta(res.meta || { total: res.data.length, totalPages: 1 });
       }
       await refreshAccount();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to load wallet ledger:', err);
+      toast.error(err.message || 'Failed to load ledger transactions');
     } finally {
       setLoading(false);
     }
@@ -76,18 +79,17 @@ export default function WalletPage() {
   const handleTopUpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
-    setSuccessNotice(null);
     try {
       const accId = targetAccountId || user?.id;
       if (!accId) throw new Error('No account selected.');
 
       await walletApi.topUp(accId, Number(topUpAmount), topUpDescription);
-      setSuccessNotice(`Successfully credited $${topUpAmount} to account!`);
+      toast.success(`Successfully credited $${topUpAmount} to account!`);
       setShowTopUpModal(false);
       fetchLedger();
       await refreshAccount();
     } catch (err: any) {
-      alert(err.message || 'Top-up failed.');
+      toast.error(err.message || 'Top-up failed.');
     } finally {
       setIsSubmitting(false);
     }
@@ -274,76 +276,74 @@ export default function WalletPage() {
 
       {/* Top Up Modal */}
       {showTopUpModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl">
-            <h3 className="text-lg font-bold text-white">Top Up Wallet Credits</h3>
-            <p className="text-xs text-slate-400 mt-1">
-              Inject credits directly into the tenant wallet ledger for immediate email sending.
-            </p>
+        <Dialog
+          isOpen={showTopUpModal}
+          onClose={() => setShowTopUpModal(false)}
+          title="Top Up Wallet Credits"
+          description="Inject credits directly into the tenant wallet ledger for immediate email sending."
+        >
+          <form onSubmit={handleTopUpSubmit} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-300">Target Tenant Account</label>
+              <select
+                value={targetAccountId}
+                onChange={(e) => setTargetAccountId(e.target.value)}
+                className="mt-1.5 block w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              >
+                {allAccounts.map((acc) => (
+                  <option key={acc.id} value={acc.id}>
+                    {acc.name} ({acc.email}) - Current: ${Number(acc.walletBalance).toFixed(2)}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-            <form onSubmit={handleTopUpSubmit} className="mt-5 space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300">Target Tenant Account</label>
-                <select
-                  value={targetAccountId}
-                  onChange={(e) => setTargetAccountId(e.target.value)}
-                  className="mt-1.5 block w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                >
-                  {allAccounts.map((acc) => (
-                    <option key={acc.id} value={acc.id}>
-                      {acc.name} ({acc.email}) - Current: ${Number(acc.walletBalance).toFixed(2)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300">Amount (USD)</label>
-                <div className="mt-1.5 relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="1"
-                    required
-                    value={topUpAmount}
-                    onChange={(e) => setTopUpAmount(Number(e.target.value))}
-                    className="w-full pl-8 pr-4 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-slate-100 font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300">Audit Description</label>
+            <div>
+              <label className="block text-xs font-semibold text-slate-300">Amount (USD)</label>
+              <div className="mt-1.5 relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
                 <input
-                  type="text"
+                  type="number"
+                  step="0.01"
+                  min="1"
                   required
-                  value={topUpDescription}
-                  onChange={(e) => setTopUpDescription(e.target.value)}
-                  placeholder="e.g. Wire transfer deposit #8410"
-                  className="mt-1.5 block w-full px-3.5 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  value={topUpAmount}
+                  onChange={(e) => setTopUpAmount(Number(e.target.value))}
+                  className="w-full pl-8 pr-4 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-slate-100 font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
+            </div>
 
-              <div className="flex justify-end space-x-3 pt-4 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setShowTopUpModal(false)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 text-xs font-medium rounded-lg hover:bg-slate-700 transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow transition"
-                >
-                  {isSubmitting ? 'Crediting...' : 'Confirm Credit Deposit'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-300">Audit Description</label>
+              <input
+                type="text"
+                required
+                value={topUpDescription}
+                onChange={(e) => setTopUpDescription(e.target.value)}
+                placeholder="e.g. Wire transfer deposit #8410"
+                className="mt-1.5 block w-full px-3.5 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+
+            <div className="flex justify-end space-x-3 pt-4 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowTopUpModal(false)}
+                className="px-4 py-2 bg-slate-800 text-slate-300 text-xs font-medium rounded-lg hover:bg-slate-700 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow transition"
+              >
+                {isSubmitting ? 'Crediting...' : 'Confirm Credit Deposit'}
+              </button>
+            </div>
+          </form>
+        </Dialog>
       )}
     </div>
   );

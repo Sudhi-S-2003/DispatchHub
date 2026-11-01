@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { messagesApi, templatesApi } from '@/lib/api';
 import { GmailPreview } from '@/components/GmailPreview';
+import { useToast } from '@/components/ui';
 import {
   Send,
   Zap,
@@ -28,6 +29,7 @@ import {
 export default function ComposePage() {
   const router = useRouter();
   const { user, refreshAccount } = useAuth();
+  const toast = useToast();
 
   // View Tab: Editor vs Live Gmail Preview
   const [composeViewTab, setComposeViewTab] = useState<'editor' | 'preview'>('editor');
@@ -120,6 +122,7 @@ export default function ComposePage() {
           remoteAttachments: attachments.length > 0 ? attachments : undefined,
         });
 
+        toast.success(`Message dispatched successfully to ${to}! Status: ${res.data?.status || 'SENT'}`);
         setResultMessage({
           success: true,
           text: `Message dispatched successfully to ${to}! Status: ${res.data?.status || 'SENT'}. Atomically debited $${Number(res.data?.cost).toFixed(3)}.`,
@@ -152,6 +155,7 @@ export default function ComposePage() {
           remoteAttachments: attachments.length > 0 ? attachments : undefined,
         });
 
+        toast.success(`Campaign "${campaignName}" launched with ${recipients.length} messages!`);
         setResultMessage({
           success: true,
           text: `Campaign "${campaignName}" created with ${recipients.length} messages! Status: ${res.data?.status || 'APPROVED'}. Total Debited: $${Number(res.data?.totalCost).toFixed(3)}.`,
@@ -161,6 +165,7 @@ export default function ComposePage() {
 
       await refreshAccount();
     } catch (err: any) {
+      toast.error(err.message || 'Dispatch failed. Check wallet balance or DNS configuration.');
       setResultMessage({
         success: false,
         text: err.message || 'Dispatch failed. Check wallet balance or DNS configuration.',

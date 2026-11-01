@@ -4,10 +4,13 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { copyTextToClipboard } from '@/lib/clipboard';
+import { useDialog, useToast } from '@/components/ui';
 import { Wallet, PlusCircle, LogOut, Key, Check, Users, ShieldAlert } from 'lucide-react';
 
 export default function Topbar() {
   const { user, logout, quickLoginAs, refreshAccount } = useAuth();
+  const { confirm } = useDialog();
+  const toast = useToast();
   const [copiedKey, setCopiedKey] = useState(false);
   const [isSwitching, setIsSwitching] = useState(false);
 
@@ -16,6 +19,7 @@ export default function Topbar() {
       const ok = await copyTextToClipboard(user.apiKey);
       if (ok) {
         setCopiedKey(true);
+        toast.info('API Key copied to clipboard!', { duration: 2000 });
         setTimeout(() => setCopiedKey(false), 2000);
       }
     }
@@ -25,9 +29,25 @@ export default function Topbar() {
     setIsSwitching(true);
     try {
       await quickLoginAs(role);
+      toast.success(`Switched role context to ${role.toUpperCase()}`);
+    } catch (err: any) {
+      toast.error(err.message || 'Role switch failed');
     } finally {
       setIsSwitching(false);
     }
+  };
+
+  const handleLogout = async () => {
+    const confirmed = await confirm({
+      title: 'Sign out of DispatchHub?',
+      description: 'You will need to re-authenticate with your credentials or API key to access your dispatch dashboard.',
+      confirmText: 'Sign out',
+      cancelText: 'Stay signed in',
+      variant: 'default',
+    });
+    if (!confirmed) return;
+    logout();
+    toast.info('Signed out of DispatchHub.');
   };
 
   return (
@@ -102,7 +122,7 @@ export default function Topbar() {
 
         {/* Logout */}
         <button
-          onClick={logout}
+          onClick={handleLogout}
           title="Sign out"
           className="p-2 text-slate-400 hover:text-rose-400 hover:bg-slate-800/80 rounded-lg transition"
         >

@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { templatesApi } from '@/lib/api';
 import { GmailPreview } from '@/components/GmailPreview';
+import { useDialog, useToast, Dialog, EmptyState, LoadingState } from '@/components/ui';
 import {
   FileCode2,
   Plus,
@@ -14,9 +15,13 @@ import {
   RefreshCw,
   Sparkles,
   Sliders,
+  Trash2,
 } from 'lucide-react';
 
 export default function TemplatesPage() {
+  const { confirm } = useDialog();
+  const toast = useToast();
+
   const [templates, setTemplates] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -42,8 +47,9 @@ export default function TemplatesPage() {
       if (res && res.data) {
         setTemplates(res.data);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to load templates:', err);
+      toast.error(err.message || 'Failed to load templates');
     } finally {
       setLoading(false);
     }
@@ -65,11 +71,32 @@ export default function TemplatesPage() {
       });
       setShowCreateModal(false);
       setName('');
+      toast.success(`Template "${name}" created successfully!`);
       fetchTemplates();
     } catch (err: any) {
-      alert(err.message || 'Failed to create template');
+      toast.error(err.message || 'Failed to create template');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteTemplate = async (id: string, templateName: string) => {
+    const confirmed = await confirm({
+      title: `Delete template "${templateName}"?`,
+      description: 'This will permanently delete this template. Any past campaigns dispatched with it will retain their rendered content.',
+      confirmText: 'Delete template',
+      cancelText: 'Cancel',
+      variant: 'danger',
+    });
+
+    if (!confirmed) return;
+
+    try {
+      await templatesApi.delete(id);
+      toast.success(`Template "${templateName}" deleted.`);
+      fetchTemplates();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete template');
     }
   };
 
@@ -96,8 +123,9 @@ export default function TemplatesPage() {
         variables: parsed,
       });
       setRenderedPreviewHtml(res.data?.renderedHtml || previewTemplate.htmlContent);
-    } catch (err: any) {
-      alert('Invalid variables JSON');
+      toast.info('Variables updated in preview');
+    } catch {
+      toast.error('Invalid variables JSON syntax');
     }
   };
 
@@ -123,12 +151,20 @@ export default function TemplatesPage() {
       {/* Templates List */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {loading ? (
-          <div className="col-span-full p-12 text-center text-slate-500 text-sm bg-slate-900 rounded-2xl border border-slate-800">
-            Loading templates...
+          <div className="col-span-full">
+            <LoadingState label="Loading template catalogue..." />
           </div>
         ) : templates.length === 0 ? (
-          <div className="col-span-full p-12 text-center text-slate-500 text-sm bg-slate-900 rounded-2xl border border-slate-800">
-            No templates created yet. Click "New Template" above to build your first template.
+          <div className="col-span-full">
+            <EmptyState
+              icon={<FileCode2 className="w-6 h-6 text-indigo-400" />}
+              title="No Templates Created"
+              description="Build your first dynamic template with variable placeholders (e.g. {{recipient.name}})."
+              action={{
+                label: 'Create Template',
+                onClick: () => setShowCreateModal(true),
+              }}
+            />
           </div>
         ) : (
           templates.map((tmpl) => (
@@ -153,13 +189,23 @@ export default function TemplatesPage() {
                 <span className="text-[11px] text-slate-500">
                   {new Date(tmpl.createdAt).toLocaleDateString()}
                 </span>
-                <button
-                  onClick={() => handleOpenPreview(tmpl)}
-                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition"
-                >
-                  <Eye className="w-3.5 h-3.5" />
-                  <span>Preview & Test</span>
-                </button>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => handleOpenPreview(tmpl)}
+                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>Test</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteTemplate(tmpl.id, tmpl.name)}
+                    className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition"
+                    title="Delete Template"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             </div>
           ))
@@ -168,155 +214,137 @@ export default function TemplatesPage() {
 
       {/* Create Template Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 shadow-2xl">
-            <h3 className="text-lg font-bold text-white mb-4">Create New Template</h3>
-            <form onSubmit={handleCreateTemplate} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300">Template Name</label>
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Security OTP Code"
-                  className="mt-1.5 block w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-lg text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
+        <Dialog
+          isOpen={showCreateModal}
+          onClose={() => setShowCreateModal(false)}
+          title="Create New Template"
+          description="Define reusable dynamic content with {{variable}} placeholders for bulk campaigns and OTP receipts."
+          maxWidth="lg"
+        >
+          <form onSubmit={handleCreateTemplate} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-300">Template Name</label>
+              <input
+                type="text"
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Security OTP Code"
+                className="mt-1.5 block w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-lg text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-300">Category</label>
-                <select
-                  value={category}
-                  onChange={(e: any) => setCategory(e.target.value)}
-                  className="mt-1.5 block w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-lg text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="TRANSACTIONAL">TRANSACTIONAL</option>
-                  <option value="MARKETING">MARKETING</option>
-                  <option value="NOTIFICATION">NOTIFICATION</option>
-                  <option value="TEST">TEST</option>
-                </select>
-              </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-300">Category</label>
+              <select
+                value={category}
+                onChange={(e: any) => setCategory(e.target.value)}
+                className="mt-1.5 block w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-lg text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="TRANSACTIONAL">TRANSACTIONAL</option>
+                <option value="MARKETING">MARKETING</option>
+                <option value="NOTIFICATION">NOTIFICATION</option>
+                <option value="TEST">TEST</option>
+              </select>
+            </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-300">Email Subject</label>
-                <input
-                  type="text"
-                  required
-                  value={subject}
-                  onChange={(e) => setSubject(e.target.value)}
-                  placeholder="Welcome {{recipient.name}}!"
-                  className="mt-1.5 block w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-lg text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-300">Email Subject</label>
+              <input
+                type="text"
+                required
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder="Welcome {{recipient.name}}!"
+                className="mt-1.5 block w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-lg text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-300">HTML Content</label>
-                <textarea
-                  rows={8}
-                  required
-                  value={htmlContent}
-                  onChange={(e) => setHtmlContent(e.target.value)}
-                  className="mt-1.5 block w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-lg text-xs font-mono text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-300">HTML Content</label>
+              <textarea
+                rows={8}
+                required
+                value={htmlContent}
+                onChange={(e) => setHtmlContent(e.target.value)}
+                className="mt-1.5 block w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-lg text-xs font-mono text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
 
-              <div className="flex justify-end space-x-3 pt-4 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 text-xs font-medium rounded-lg hover:bg-slate-700 transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow transition"
-                >
-                  {isSubmitting ? 'Saving...' : 'Save Template'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+            <div className="flex justify-end space-x-3 pt-4 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowCreateModal(false)}
+                className="px-4 py-2 bg-slate-800 text-slate-300 text-xs font-medium rounded-lg hover:bg-slate-700 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow transition"
+              >
+                {isSubmitting ? 'Saving...' : 'Save Template'}
+              </button>
+            </div>
+          </form>
+        </Dialog>
       )}
 
       {/* Gmail UI Preview Modal */}
       {previewTemplate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-5xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
-            {/* Modal Header */}
-            <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
-                  <FileCode2 className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-white flex items-center gap-2">
-                    Template Live Tester
-                    <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-                      {previewTemplate.category}
-                    </span>
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">{previewTemplate.name}</p>
-                </div>
+        <Dialog
+          isOpen={Boolean(previewTemplate)}
+          onClose={() => setPreviewTemplate(null)}
+          title={`Template Live Tester: ${previewTemplate.name}`}
+          description="Test real-time variable interpolation inside an authentic Gmail canvas."
+          maxWidth="xl"
+        >
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Left Column: Variable Interpolation Editor */}
+            <div className="lg:col-span-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                  <Sliders className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Merge Variables (JSON)</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={handleUpdatePreview}
+                  className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-medium rounded-md flex items-center space-x-1 transition shadow-sm"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Apply</span>
+                </button>
               </div>
 
-              <button
-                onClick={() => setPreviewTemplate(null)}
-                className="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition"
-              >
-                ✕
-              </button>
+              <textarea
+                rows={9}
+                value={previewVariablesJson}
+                onChange={(e) => setPreviewVariablesJson(e.target.value)}
+                className="w-full p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs font-mono text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner"
+                placeholder='{ "recipient": { "name": "Sudhi" } }'
+              />
+
+              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-[11px] text-slate-400 space-y-1">
+                <p className="font-semibold text-slate-300">💡 Dynamic Merging:</p>
+                <p>Changes apply instantly inside the Gmail preview canvas to test client rendering.</p>
+              </div>
             </div>
 
-            {/* Modal Body: Split view (Variables editor + Gmail UI Preview) */}
-            <div className="p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 overflow-y-auto bg-slate-950">
-              {/* Left Column: Variable Interpolation Editor */}
-              <div className="lg:col-span-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                    <Sliders className="w-3.5 h-3.5 text-indigo-400" />
-                    <span>Merge Variables (JSON)</span>
-                  </label>
-                  <button
-                    onClick={handleUpdatePreview}
-                    className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-medium rounded-md flex items-center space-x-1 transition shadow-sm"
-                  >
-                    <RefreshCw className="w-3 h-3" />
-                    <span>Apply</span>
-                  </button>
-                </div>
-
-                <textarea
-                  rows={9}
-                  value={previewVariablesJson}
-                  onChange={(e) => setPreviewVariablesJson(e.target.value)}
-                  className="w-full p-3 bg-slate-900 border border-slate-800 rounded-xl text-xs font-mono text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner"
-                  placeholder='{ "recipient": { "name": "Sudhi" } }'
-                />
-
-                <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-800 text-[11px] text-slate-400 space-y-1">
-                  <p className="font-semibold text-slate-300">💡 Dynamic Merging:</p>
-                  <p>Changes apply instantly inside the Gmail preview canvas to test real client rendering.</p>
-                </div>
-              </div>
-
-              {/* Right Column: High-Fidelity Gmail UI Preview */}
-              <div className="lg:col-span-8">
-                <GmailPreview
-                  sender="dispatch@mail1.postal.test.sudhi.online"
-                  senderName="DispatchHub Templates"
-                  recipient="sudhiselampa19@gmail.com"
-                  subject={previewTemplate.subject || 'Preview Subject'}
-                  htmlBody={renderedPreviewHtml || previewTemplate.htmlContent}
-                  date={new Date().toLocaleString()}
-                />
-              </div>
+            {/* Right Column: High-Fidelity Gmail UI Preview */}
+            <div className="lg:col-span-8">
+              <GmailPreview
+                sender="dispatch@mail1.postal.test.sudhi.online"
+                senderName="DispatchHub Templates"
+                recipient="sudhiselampa19@gmail.com"
+                subject={previewTemplate.subject || 'Preview Subject'}
+                htmlBody={renderedPreviewHtml || previewTemplate.htmlContent}
+                date={new Date().toLocaleString()}
+              />
             </div>
           </div>
-        </div>
+        </Dialog>
       )}
     </div>
   );

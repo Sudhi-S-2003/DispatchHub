@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { domainsApi } from '@/lib/api';
 import { copyTextToClipboard } from '@/lib/clipboard';
+import { useDialog, useToast, EmptyState, LoadingState } from '@/components/ui';
 import {
   Globe,
   Plus,
@@ -104,13 +105,15 @@ function parseDnsHostsClient(domainName: string, selector = 'postal', publicKey 
 }
 
 export default function DomainsPage() {
+  const { confirm } = useDialog();
+  const toast = useToast();
+
   const [domains, setDomains] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [newDomainName, setNewDomainName] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [verifyingId, setVerifyingId] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
-  const [notice, setNotice] = useState<{ success: boolean; text: string } | null>(null);
   const [diagnosticsMap, setDiagnosticsMap] = useState<Record<string, any>>({});
   const [formatMode, setFormatMode] = useState<'relative' | 'fqdn'>('relative');
 
@@ -123,6 +126,7 @@ export default function DomainsPage() {
       }
     } catch (err: any) {
       console.error('Failed to load domains:', err);
+      toast.error(err.message || 'Failed to load domains');
     } finally {
       setLoading(false);
     }
@@ -137,27 +141,17 @@ export default function DomainsPage() {
     if (!targetName) return;
 
     setIsAdding(true);
-    setNotice(null);
     try {
       const res = await domainsApi.create(targetName);
       if (res.verified) {
-        setNotice({
-          success: true,
-          text: `🎉 Domain ${targetName} was immediately verified & activated! DNS records are live.`,
-        });
+        toast.success(`Domain ${targetName} was immediately verified & activated! DNS records are live.`);
       } else {
-        setNotice({
-          success: true,
-          text: `Domain ${targetName} registered! Add the required DNS records at your registrar below, then click 'Verify Live DNS'.`,
-        });
+        toast.info(`Domain ${targetName} registered! Configure the required DNS records below, then click 'Verify Live DNS'.`);
       }
       setNewDomainName('');
       fetchDomains();
     } catch (err: any) {
-      setNotice({
-        success: false,
-        text: err.message || 'Failed to add domain.',
-      });
+      toast.error(err.message || 'Failed to add domain.');
     } finally {
       setIsAdding(false);
     }
@@ -165,7 +159,6 @@ export default function DomainsPage() {
 
   const handleVerifyDns = async (id: string, name: string) => {
     setVerifyingId(id);
-    setNotice(null);
     try {
       const res = await domainsApi.verify(id);
       if (res.verificationCheck?.diagnostics) {
@@ -176,49 +169,40 @@ export default function DomainsPage() {
       }
 
       if (res.isReady || res.data?.status === 'ACTIVE') {
-        setNotice({
-          success: true,
-          text: `🎉 Domain ${name} verified successfully! Status is ACTIVE and ready for email dispatch.`,
-        });
+        toast.success(`Domain ${name} verified successfully! Status is ACTIVE and ready for email dispatch.`);
       } else {
         const dkimDiag = res.verificationCheck?.diagnostics?.dkim;
         if (dkimDiag?.status === 'ERROR') {
-          setNotice({
-            success: false,
-            text: dkimDiag.message,
-          });
+          toast.error(dkimDiag.message, { title: 'DKIM Validation Issue' });
         } else {
-          setNotice({
-            success: false,
-            text: `DNS verification pending for ${name}. Review the real-time record inspection below.`,
-          });
+          toast.warning(`DNS verification pending for ${name}. Review the real-time record inspection below.`);
         }
       }
       fetchDomains();
     } catch (err: any) {
-      setNotice({
-        success: false,
-        text: err.message || 'DNS check encountered an error.',
-      });
+      toast.error(err.message || 'DNS check encountered an error.');
     } finally {
       setVerifyingId(null);
     }
   };
 
   const handleDeleteDomain = async (id: string, name: string) => {
-    if (!window.confirm(`Are you sure you want to remove domain '${name}'?`)) return;
+    const confirmed = await confirm({
+      title: `Remove domain '${name}'?`,
+      description: 'This action will revoke SPF, DKIM, and MX routing keys. Active or scheduled dispatches using this domain will fail.',
+      confirmText: 'Remove domain',
+      cancelText: 'Keep domain',
+      variant: 'danger',
+    });
+
+    if (!confirmed) return;
+
     try {
       await domainsApi.delete(id);
-      setNotice({
-        success: true,
-        text: `Domain ${name} successfully removed.`,
-      });
+      toast.success(`Domain '${name}' successfully removed.`);
       fetchDomains();
     } catch (err: any) {
-      setNotice({
-        success: false,
-        text: err.message || 'Failed to delete domain.',
-      });
+      toast.error(err.message || 'Failed to delete domain.');
     }
   };
 
@@ -226,6 +210,7 @@ export default function DomainsPage() {
     const ok = await copyTextToClipboard(text);
     if (ok) {
       setCopiedKey(keyId);
+      toast.info('Copied DNS value to clipboard!', { duration: 2000 });
       setTimeout(() => setCopiedKey(null), 2000);
     }
   };
@@ -239,23 +224,6 @@ export default function DomainsPage() {
           Manage tenant-owned domains with full SPF, DKIM (RSA-2048), and MX records for 10/10 deliverability.
         </p>
       </div>
-
-      {notice && (
-        <div
-          className={`p-4 rounded-xl border flex items-start space-x-3 text-xs leading-relaxed ${
-            notice.success
-              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-              : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
-          }`}
-        >
-          {notice.success ? (
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-          ) : (
-            <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-          )}
-          <span>{notice.text}</span>
-        </div>
-      )}
 
       {/* Add New Domain Card */}
       <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 space-y-4 shadow-sm">
@@ -332,13 +300,13 @@ export default function DomainsPage() {
         </div>
 
         {loading ? (
-          <div className="p-12 text-center text-slate-500 text-sm bg-slate-900 rounded-2xl border border-slate-800">
-            Loading configured domains...
-          </div>
+          <LoadingState label="Loading configured sending domains..." />
         ) : domains.length === 0 ? (
-          <div className="p-12 text-center text-slate-500 text-sm bg-slate-900 rounded-2xl border border-slate-800">
-            No domains registered yet. Add your domain above or click Quick-Add Server Domain.
-          </div>
+          <EmptyState
+            icon={<Globe className="w-6 h-6 text-indigo-400" />}
+            title="No Sending Domains Registered"
+            description="Register your corporate domain or subdomain above, or click Quick-Add Server Domain to begin dispatching immediately."
+          />
         ) : (
           domains.map((dom: any) => {
             const domainName = dom.domainName || dom.name || 'yourdomain.com';

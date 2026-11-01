@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { AuthProvider } from '@/lib/auth-context';
+import { DialogProvider, ToastProvider } from '@/components/ui';
 import AppShell from '@/components/AppShell';
 
 export const metadata: Metadata = {
@@ -17,7 +18,11 @@ export default function RootLayout({
     <html lang="en" className="dark">
       <body className="bg-slate-950 text-slate-100 antialiased selection:bg-indigo-500 selection:text-white">
         <AuthProvider>
-          <AppShell>{children}</AppShell>
+          <DialogProvider>
+            <ToastProvider>
+              <AppShell>{children}</AppShell>
+            </ToastProvider>
+          </DialogProvider>
         </AuthProvider>
       </body>
     </html>
