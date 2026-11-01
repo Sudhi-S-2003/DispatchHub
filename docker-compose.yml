@@ -1,0 +1,79 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: dispatchhub-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: dispatchhub
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: dispatchhub-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: dispatchhub-backend
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://postgres:postgrespassword@postgres:5432/dispatchhub?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: super_secret_jwt_key_998811
+      ENCRYPTION_KEY: 01234567890123456789012345678901
+      POSTAL_HOST: http://postal.sudhi.online
+      POSTAL_API_KEY: aXFzpsrab8cWIqpBVm31bYv5
+      POSTAL_SERVER_DOMAIN: mail.postal.sudhi.online
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "postal.sudhi.online:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: dispatchhub-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      NEXT_PUBLIC_API_URL: http://api.postal.sudhi.online
+      BACKEND_URL: http://backend:4000
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  redis_data:

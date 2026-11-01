@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Production Builds
+dist/
+*/dist/
+.next/
+*/.next/
+out/
+*/out/
+build/
+
+# Environment Variables & Secrets
+.env
+.env*.local
+*.env
+!.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Testing / Scratch
+test-send.js
+test-e2e-flow.js
+plan.md
