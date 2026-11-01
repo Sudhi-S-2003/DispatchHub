@@ -75,7 +75,7 @@ export const AccountSwitcher: React.FC = () => {
       await switchAccount(targetId);
       setIsOpen(false);
     } catch (err: any) {
-      toast.error(err.message || 'Failed to switch account');
+      toast.error(err.userMessage || err.message || 'Failed to switch account');
     } finally {
       setSwitchingId(null);
     }
@@ -138,7 +138,7 @@ export const AccountSwitcher: React.FC = () => {
       setNewEmail('');
       setNewApiKey('');
     } catch (err: any) {
-      toast.error(err.message || 'Authentication failed. Please verify credentials.');
+      toast.error(err.userMessage || err.message || 'Authentication failed. Please verify credentials.');
     } finally {
       setIsAdding(false);
     }
@@ -152,7 +152,7 @@ export const AccountSwitcher: React.FC = () => {
       setShowAddModal(false);
       setIsOpen(false);
     } catch (err: any) {
-      toast.error(err.message || 'Quick login failed.');
+      toast.error(err.userMessage || err.message || 'Quick login failed.');
     } finally {
       setIsAdding(false);
     }

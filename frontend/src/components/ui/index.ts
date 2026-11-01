@@ -13,5 +13,6 @@ export * from './toast/useToast';
 
 export * from './feedback/EmptyState';
 export * from './feedback/ErrorState';
+export * from './feedback/ErrorBoundary';
 export * from './feedback/LoadingState';
 export * from './feedback/SuccessState';

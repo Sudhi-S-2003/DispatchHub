@@ -15,26 +15,34 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+
+    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setError('Please provide a valid account email address.');
+      return;
+    }
+
     setError(null);
     setIsSubmitting(true);
     try {
-      await login(email, apiKey || undefined);
+      await login(email.trim(), apiKey.trim() || undefined);
       router.push('/');
     } catch (err: any) {
-      setError(err.message || 'Authentication failed. Please verify credentials.');
+      setError(err.userMessage || err.message || 'Authentication failed. Please verify credentials.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleQuickLogin = async (type: 'admin' | 'client') => {
+    if (isSubmitting) return;
     setError(null);
     setIsSubmitting(true);
     try {
       await quickLoginAs(type);
       router.push('/');
     } catch (err: any) {
-      setError(err.message || 'Quick login failed.');
+      setError(err.userMessage || err.message || 'Quick login failed.');
     } finally {
       setIsSubmitting(false);
     }

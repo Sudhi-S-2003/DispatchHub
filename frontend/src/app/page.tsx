@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { analyticsApi } from '@/lib/api';
+import { ErrorState, LoadingState, ErrorBoundary } from '@/components/ui';
 import {
   Send,
   MailCheck,
@@ -26,12 +27,19 @@ export default function DashboardPage() {
   const [analytics, setAnalytics] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const fetchDashboardData = async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setIsLoading(true);
     setError(null);
     try {
-      const res = await analyticsApi.getDashboard();
+      const res = await analyticsApi.getDashboard({ signal: controller.signal });
       if (res && res.data) {
         setAnalytics(res.data);
       } else if (res) {
@@ -39,8 +47,10 @@ export default function DashboardPage() {
       }
       await refreshAccount();
     } catch (err: any) {
-      console.error('Failed to load dashboard data:', err);
-      setError(err.message || 'Failed to connect to analytics service');
+      if (err.name === 'AbortError' || err.code === 'TIMEOUT_ERROR' && controller.signal.aborted) {
+        return;
+      }
+      setError(err.userMessage || err.message || 'Failed to connect to analytics service');
     } finally {
       setIsLoading(false);
     }
@@ -48,6 +58,11 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetchDashboardData();
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, []);
 
   const summary = analytics?.summary || {
@@ -92,7 +107,16 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {error && (
+      {error && !analytics ? (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+          <ErrorState
+            title="Telemetry Data Unavailable"
+            message={error}
+            retryLabel="Retry Sync"
+            onRetry={fetchDashboardData}
+          />
+        </div>
+      ) : error ? (
         <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-400 text-sm flex items-center justify-between">
           <div className="flex items-center space-x-2">
             <AlertCircle className="w-4 h-4" />
@@ -105,7 +129,7 @@ export default function DashboardPage() {
             Retry
           </button>
         </div>
-      )}
+      ) : null}
 
       {/* KPI Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">

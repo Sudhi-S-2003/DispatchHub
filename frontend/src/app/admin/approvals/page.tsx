@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { campaignsApi, messagesApi } from '@/lib/api';
-import { useDialog, useToast, Dialog, EmptyState, LoadingState } from '@/components/ui';
+import { useDialog, useToast, Dialog, EmptyState, LoadingState, ErrorState } from '@/components/ui';
 import {
   ShieldAlert,
   CheckCircle2,
@@ -30,14 +30,23 @@ export default function AdminApprovalsPage() {
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [pagination, setPagination] = useState({ page: 1, limit: 10, totalPages: 1, total: 0 });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [rejectingCampaign, setRejectingCampaign] = useState<any | null>(null);
   const [rejectReason, setRejectReason] = useState('Campaign content violation: missing valid unsubscribe footer or policy terms.');
   const [isProcessing, setIsProcessing] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const fetchCampaigns = async (page: number = 1) => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setLoading(true);
+    setError(null);
     try {
-      const res = await campaignsApi.getPendingApprovals({ page, limit: 10 });
+      const res = await campaignsApi.getPendingApprovals({ page, limit: 10 }, { signal: controller.signal });
       if (res && res.data) {
         setCampaigns(res.data);
         if (res.meta) {
@@ -50,8 +59,11 @@ export default function AdminApprovalsPage() {
         }
       }
     } catch (err: any) {
-      console.error('Failed to load pending campaigns:', err);
-      toast.error(err.message || 'Failed to load pending campaign queue');
+      if (err.name === 'AbortError' || (err.code === 'TIMEOUT_ERROR' && controller.signal.aborted)) {
+        return;
+      }
+      setError(err.userMessage || err.message || 'Failed to load pending campaign queue');
+      toast.error(err.userMessage || err.message || 'Failed to load pending campaign queue');
     } finally {
       setLoading(false);
     }
@@ -61,6 +73,11 @@ export default function AdminApprovalsPage() {
     if (user?.role === 'ADMIN') {
       fetchCampaigns(1);
     }
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, [user]);
 
   const handleApprove = async (camp: any) => {
@@ -131,6 +148,15 @@ export default function AdminApprovalsPage() {
       <div className="space-y-4">
         {loading ? (
           <LoadingState label="Scanning pending campaign queue..." />
+        ) : error && campaigns.length === 0 ? (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+            <ErrorState
+              title="Failed to Load Campaign Queue"
+              message={error}
+              retryLabel="Retry"
+              onRetry={() => fetchCampaigns(pagination.page)}
+            />
+          </div>
         ) : campaigns.length === 0 ? (
           <EmptyState
             icon={<CheckCircle2 className="w-6 h-6 text-emerald-400" />}

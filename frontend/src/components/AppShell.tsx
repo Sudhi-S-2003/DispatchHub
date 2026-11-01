@@ -15,8 +15,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const isLoginPage = pathname === '/login';
 
   useEffect(() => {
-    if (!isLoading && !token && !isLoginPage) {
-      router.push('/login');
+    if (!isLoading) {
+      if (!token && !isLoginPage) {
+        router.push('/login');
+      } else if (token && isLoginPage) {
+        router.push('/');
+      }
     }
   }, [isLoading, token, isLoginPage, router]);
 

@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { walletApi, accountsApi } from '@/lib/api';
-import { useToast, Dialog, EmptyState, LoadingState } from '@/components/ui';
+import { useToast, Dialog, EmptyState, LoadingState, ErrorState } from '@/components/ui';
 import {
   Wallet,
   ArrowUpRight,
@@ -36,19 +36,33 @@ export default function WalletPage() {
   const [targetAccountId, setTargetAccountId] = useState('');
   const [allAccounts, setAllAccounts] = useState<any[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [successNotice, setSuccessNotice] = useState<string | null>(null);
+
+  const [error, setError] = useState<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const fetchLedger = async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setLoading(true);
+    setError(null);
     try {
-      const res = await walletApi.getLedger({ page, limit });
+      const res = await walletApi.getLedger({ page, limit }, { signal: controller.signal });
       if (res && res.data) {
         setLedger(res.data);
         setMeta(res.meta || { total: res.data.length, totalPages: 1 });
       }
       await refreshAccount();
     } catch (err: any) {
-      console.error('Failed to load wallet ledger:', err);
-      toast.error(err.message || 'Failed to load ledger transactions');
+      if (err.name === 'AbortError' || (err.code === 'TIMEOUT_ERROR' && controller.signal.aborted)) {
+        return;
+      }
+      setError(err.userMessage || err.message || 'Failed to load ledger transactions');
+      toast.error(err.userMessage || err.message || 'Failed to load ledger transactions');
     } finally {
       setLoading(false);
     }
@@ -74,7 +88,12 @@ export default function WalletPage() {
     if (user?.role === 'ADMIN') {
       fetchAccounts();
     }
-  }, [page, limit, user]);
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, [page, limit, user?.role]);
 
   const handleTopUpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -196,14 +215,28 @@ export default function WalletPage() {
             <tbody className="divide-y divide-slate-800 bg-slate-900/40">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-10 text-center text-slate-500">
-                    Loading wallet transactions...
+                  <td colSpan={6} className="px-6 py-10">
+                    <LoadingState message="Loading wallet transactions..." />
+                  </td>
+                </tr>
+              ) : error ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-8">
+                    <ErrorState
+                      title="Failed to Load Ledger Records"
+                      message={error}
+                      retryLabel="Retry"
+                      onRetry={fetchLedger}
+                    />
                   </td>
                 </tr>
               ) : ledger.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-10 text-center text-slate-500">
-                    No transactions recorded.
+                  <td colSpan={6} className="px-6 py-10 text-center">
+                    <EmptyState
+                      title="No Transactions Recorded"
+                      description="No credit deposits, dispatch debits, or campaign refunds have occurred in this wallet yet."
+                    />
                   </td>
                 </tr>
               ) : (
@@ -240,7 +273,7 @@ export default function WalletPage() {
                       {tx.messageId || '—'}
                     </td>
                     <td className="px-6 py-3.5 text-slate-500 font-sans text-[11px]">
-                      {new Date(tx.createdAt).toLocaleDateString()} {new Date(tx.createdAt).toLocaleTimeString()}
+                      {tx.createdAt ? new Date(tx.createdAt).toISOString().replace('T', ' ').slice(0, 19) + ' UTC' : '—'}
                     </td>
                   </tr>
                 ))

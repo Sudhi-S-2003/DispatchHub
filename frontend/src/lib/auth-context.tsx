@@ -1,9 +1,10 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { authApi } from './api';
+import { authApi, onUnauthorized } from './api';
 import { accountSessionService } from '@/features/auth/services/account-session.service';
 import { AccountSession } from '@/features/auth/types/account-session.types';
+import { handleAppError, errorLogger } from './errors';
 
 export interface UserAccount {
   id: string;
@@ -96,35 +97,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAccounts(accountSessionService.getSavedAccounts());
       }
     } catch (err) {
-      console.error('Failed to refresh user profile:', err);
+      errorLogger.warn('Failed to refresh user profile:', err);
     }
   };
 
+  // Intercept 401 Unauthorized API responses
   useEffect(() => {
-    // 1. Check for legacy single-account token and migrate if not in accounts list
-    const legacyToken = localStorage.getItem('dispatchhub_token');
-    const legacyUserRaw = localStorage.getItem('dispatchhub_user');
-    const savedAccounts = accountSessionService.getSavedAccounts();
+    const unsubscribe = onUnauthorized(() => {
+      if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+        errorLogger.warn('Received 401 Unauthorized from API. Active token is invalid or expired.');
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
-    if (savedAccounts.length === 0 && legacyToken && legacyUserRaw) {
-      try {
-        const parsed = JSON.parse(legacyUserRaw);
-        if (parsed.id && parsed.email) {
-          const initialSession: AccountSession = {
-            id: parsed.id,
-            email: parsed.email,
-            name: parsed.name || parsed.email.split('@')[0],
-            role: parsed.role || 'CLIENT',
-            token: legacyToken,
-            apiKey: parsed.apiKey || localStorage.getItem('dispatchhub_api_key') || '',
-            walletBalance: Number(parsed.walletBalance || 0),
-            isActive: true,
-            lastActiveAt: Date.now(),
-          };
-          accountSessionService.saveAccountSession(initialSession, true);
+  useEffect(() => {
+    let isMounted = true;
+
+    // 1. Check for legacy single-account token and migrate if not in accounts list
+    if (typeof window !== 'undefined') {
+      const legacyToken = localStorage.getItem('dispatchhub_token');
+      const legacyUserRaw = localStorage.getItem('dispatchhub_user');
+      const savedAccounts = accountSessionService.getSavedAccounts();
+
+      if (savedAccounts.length === 0 && legacyToken && legacyUserRaw) {
+        try {
+          const parsed = JSON.parse(legacyUserRaw);
+          if (parsed.id && parsed.email) {
+            const initialSession: AccountSession = {
+              id: parsed.id,
+              email: parsed.email,
+              name: parsed.name || parsed.email.split('@')[0],
+              role: parsed.role || 'CLIENT',
+              token: legacyToken,
+              apiKey: parsed.apiKey || localStorage.getItem('dispatchhub_api_key') || '',
+              walletBalance: Number(parsed.walletBalance || 0),
+              isActive: true,
+              lastActiveAt: Date.now(),
+            };
+            accountSessionService.saveAccountSession(initialSession, true);
+          }
+        } catch {
+          // ignore parsing error
         }
-      } catch {
-        // ignore
       }
     }
 
@@ -135,6 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       authApi
         .getMe()
         .then((res) => {
+          if (!isMounted) return;
           const accountData = res?.data || res;
           if (accountData?.id) {
             const balance =
@@ -152,13 +168,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             syncStateFromStorage();
           }
         })
-        .catch(() => {
-          // Token expired or server unreachable
+        .catch((err) => {
+          // Token expired or server unreachable - preserve offline cache safely
+          errorLogger.warn('Active session verification failed:', err);
         })
-        .finally(() => setIsLoading(false));
+        .finally(() => {
+          if (isMounted) setIsLoading(false);
+        });
     } else {
       setIsLoading(false);
     }
+
+    return () => {
+      isMounted = false;
+    };
   }, [syncStateFromStorage]);
 
   const login = async (email: string, apiKey?: string) => {
@@ -237,9 +260,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.location.href = '/';
       return true;
     } catch (err: any) {
-      console.error('Account switch failed:', err);
+      const appErr = handleAppError(err, 'switchAccount');
       setIsLoading(false);
-      throw err;
+      throw appErr;
     }
   };
 

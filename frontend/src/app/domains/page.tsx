@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { domainsApi } from '@/lib/api';
 import { copyTextToClipboard } from '@/lib/clipboard';
-import { useDialog, useToast, EmptyState, LoadingState } from '@/components/ui';
+import { useDialog, useToast, EmptyState, LoadingState, ErrorState } from '@/components/ui';
 import {
   Globe,
   Plus,
@@ -110,23 +110,35 @@ export default function DomainsPage() {
 
   const [domains, setDomains] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [newDomainName, setNewDomainName] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [verifyingId, setVerifyingId] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [diagnosticsMap, setDiagnosticsMap] = useState<Record<string, any>>({});
   const [formatMode, setFormatMode] = useState<'relative' | 'fqdn'>('relative');
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const fetchDomains = async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
       setLoading(true);
-      const res = await domainsApi.list();
+      setError(null);
+      const res = await domainsApi.list(undefined, { signal: controller.signal });
       if (res && res.data) {
         setDomains(Array.isArray(res.data) ? res.data : []);
       }
     } catch (err: any) {
-      console.error('Failed to load domains:', err);
-      toast.error(err.message || 'Failed to load domains');
+      if (err.name === 'AbortError' || (err.code === 'TIMEOUT_ERROR' && controller.signal.aborted)) {
+        return;
+      }
+      setError(err.userMessage || err.message || 'Failed to load domains');
+      toast.error(err.userMessage || err.message || 'Failed to load domains');
     } finally {
       setLoading(false);
     }
@@ -134,6 +146,11 @@ export default function DomainsPage() {
 
   useEffect(() => {
     fetchDomains();
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, []);
 
   const handleAddDomain = async (nameToAdd?: string) => {
@@ -301,6 +318,15 @@ export default function DomainsPage() {
 
         {loading ? (
           <LoadingState label="Loading configured sending domains..." />
+        ) : error && domains.length === 0 ? (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+            <ErrorState
+              title="Failed to Load Sending Domains"
+              message={error}
+              retryLabel="Retry"
+              onRetry={fetchDomains}
+            />
+          </div>
         ) : domains.length === 0 ? (
           <EmptyState
             icon={<Globe className="w-6 h-6 text-indigo-400" />}

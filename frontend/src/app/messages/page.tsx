@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import Link from 'next/link';
 import { messagesApi } from '@/lib/api';
 import { GmailPreview } from '@/components/GmailPreview';
-import { useToast, Dialog } from '@/components/ui';
+import { useToast, Dialog, EmptyState, ErrorState, LoadingState } from '@/components/ui';
 import {
   Mail,
   Search,
@@ -21,40 +22,68 @@ import {
   ShieldAlert,
   Smartphone,
   Monitor,
+  Send,
+  RefreshCw,
 } from 'lucide-react';
+
+function formatDisplayDate(dateStr: string): string {
+  if (!dateStr) return '—';
+  try {
+    const d = new Date(dateStr);
+    return isNaN(d.getTime()) ? '—' : d.toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+  } catch {
+    return '—';
+  }
+}
 
 export default function MessagesPage() {
   const toast = useToast();
   const [messages, setMessages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [status, setStatus] = useState('');
   const [category, setCategory] = useState('');
   const [search, setSearch] = useState('');
   const [meta, setMeta] = useState<any>({ total: 0, totalPages: 1 });
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Detail Modal
   const [selectedMessage, setSelectedMessage] = useState<any | null>(null);
   const [modalTab, setModalTab] = useState<'preview' | 'metadata'>('preview');
 
   const fetchMessages = async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setLoading(true);
+    setError(null);
     try {
-      const res = await messagesApi.list({
-        page,
-        limit,
-        status: status || undefined,
-        category: category || undefined,
-        search: search || undefined,
-      });
+      const res = await messagesApi.list(
+        {
+          page,
+          limit,
+          status: status || undefined,
+          category: category || undefined,
+          search: search || undefined,
+        },
+        { signal: controller.signal },
+      );
 
       if (res && res.data) {
         setMessages(res.data);
         setMeta(res.meta || { total: res.data.length, totalPages: 1 });
       }
-    } catch (err) {
-      console.error('Failed to load messages:', err);
+    } catch (err: any) {
+      if (err.name === 'AbortError' || (err.code === 'TIMEOUT_ERROR' && controller.signal.aborted)) {
+        return;
+      }
+      setError(err.userMessage || err.message || 'Failed to load messages from database');
+      toast.error(err.userMessage || err.message || 'Failed to load messages');
     } finally {
       setLoading(false);
     }
@@ -62,6 +91,11 @@ export default function MessagesPage() {
 
   useEffect(() => {
     fetchMessages();
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, [page, limit, status, category]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
@@ -168,14 +202,36 @@ export default function MessagesPage() {
             <tbody className="divide-y divide-slate-800 bg-slate-900/40">
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center text-slate-500">
-                    Loading telemetry from PostgreSQL...
+                  <td colSpan={8} className="px-6 py-12">
+                    <LoadingState message="Loading message telemetry from PostgreSQL..." />
+                  </td>
+                </tr>
+              ) : error ? (
+                <tr>
+                  <td colSpan={8} className="px-6 py-8">
+                    <ErrorState
+                      title="Failed to Load Message Logs"
+                      message={error}
+                      retryLabel="Retry"
+                      onRetry={fetchMessages}
+                    />
                   </td>
                 </tr>
               ) : messages.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center text-slate-500">
-                    No messages matched the specified criteria.
+                  <td colSpan={8} className="px-6 py-12">
+                    <EmptyState
+                      title="No Messages Found"
+                      description={
+                        search || status || category
+                          ? 'No messages matched your current filters. Try resetting filters.'
+                          : 'No email dispatches recorded in this tenant queue yet.'
+                      }
+                      actionLabel="Launch Send Studio"
+                      onAction={() => {
+                        if (typeof window !== 'undefined') window.location.href = '/compose';
+                      }}
+                    />
                   </td>
                 </tr>
               ) : (
@@ -223,8 +279,8 @@ export default function MessagesPage() {
                         {msg.status}
                       </span>
                     </td>
-                    <td className="px-5 py-3.5 text-slate-500 text-[11px]">
-                      {new Date(msg.createdAt).toLocaleDateString()} {new Date(msg.createdAt).toLocaleTimeString()}
+                    <td className="px-5 py-3.5 text-slate-500 text-[11px] font-mono">
+                      {formatDisplayDate(msg.createdAt)}
                     </td>
                     <td className="px-5 py-3.5 text-right">
                       <button

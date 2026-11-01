@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { messagesApi, templatesApi } from '@/lib/api';
 import { GmailPreview } from '@/components/GmailPreview';
-import { useToast } from '@/components/ui';
+import { useToast, ErrorBoundary } from '@/components/ui';
 import {
   Send,
   Zap,
@@ -68,6 +68,7 @@ export default function ComposePage() {
   // Status & Feedback
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resultMessage, setResultMessage] = useState<{ success: boolean; text: string; details?: any } | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   // Rates
   const rateCard: Record<string, { whiteLabel: number; coBranded: number }> = {
@@ -96,17 +97,49 @@ export default function ComposePage() {
 
   const handleDispatch = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+
     setResultMessage(null);
+    const errors: Record<string, string> = {};
+
+    if (!subject.trim()) {
+      errors.subject = 'Subject is required.';
+    }
+
+    if (mode === 'single') {
+      if (!to.trim()) {
+        errors.to = 'Recipient email is required.';
+      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to.trim())) {
+        errors.to = 'Invalid email address format.';
+      }
+    } else {
+      if (!campaignName.trim()) {
+        errors.campaignName = 'Campaign name is required.';
+      }
+      if (!campaignRecipientsText.trim()) {
+        errors.campaignRecipients = 'At least one recipient is required.';
+      }
+    }
+
+    let parsedVariables = {};
+    if (mode === 'single' && variablesJson.trim()) {
+      try {
+        parsedVariables = JSON.parse(variablesJson);
+      } catch {
+        errors.variablesJson = 'Variables must be valid JSON format.';
+      }
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      toast.error('Please resolve the highlighted validation errors.');
+      return;
+    }
+
+    setFieldErrors({});
     setIsSubmitting(true);
 
     try {
-      let parsedVariables = {};
-      try {
-        parsedVariables = JSON.parse(variablesJson);
-      } catch (err) {
-        throw new Error('Variables must be valid JSON.');
-      }
-
       if (mode === 'single') {
         const res = await messagesApi.sendSingle({
           to,
@@ -165,11 +198,19 @@ export default function ComposePage() {
 
       await refreshAccount();
     } catch (err: any) {
-      toast.error(err.message || 'Dispatch failed. Check wallet balance or DNS configuration.');
+      const errorText = err.userMessage || err.message || 'Dispatch failed. Check wallet balance or DNS configuration.';
+      toast.error(errorText);
       setResultMessage({
         success: false,
-        text: err.message || 'Dispatch failed. Check wallet balance or DNS configuration.',
+        text: errorText,
       });
+      if (err.fieldErrors) {
+        const mapped: Record<string, string> = {};
+        for (const [k, v] of Object.entries(err.fieldErrors)) {
+          if (Array.isArray(v) && v[0]) mapped[k] = v[0] as string;
+        }
+        setFieldErrors(mapped);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -266,18 +307,20 @@ export default function ComposePage() {
       {/* Form Card or Live Gmail Preview */}
       {composeViewTab === 'preview' ? (
         <div className="space-y-6">
-          <GmailPreview
-            sender={sender || 'dispatch@mail1.postal.test.sudhi.online'}
-            senderName="DispatchHub Live Mailer"
-            recipient={mode === 'single' ? to : 'campaign-recipients@list'}
-            replyTo={replyTo || undefined}
-            cc={cc || undefined}
-            bcc={bcc || undefined}
-            subject={subject || '(No Subject)'}
-            htmlBody={htmlBody}
-            isCoBranded={isCoBranded}
-            attachments={attachments}
-          />
+          <ErrorBoundary name="GmailPreviewBoundary">
+            <GmailPreview
+              sender={sender || 'dispatch@mail1.postal.test.sudhi.online'}
+              senderName="DispatchHub Live Mailer"
+              recipient={mode === 'single' ? to : 'campaign-recipients@list'}
+              replyTo={replyTo || undefined}
+              cc={cc || undefined}
+              bcc={bcc || undefined}
+              subject={subject || '(No Subject)'}
+              htmlBody={htmlBody}
+              isCoBranded={isCoBranded}
+              attachments={attachments}
+            />
+          </ErrorBoundary>
 
           <div className="flex items-center justify-between p-4 rounded-xl bg-slate-900 border border-slate-800">
             <div className="flex items-center space-x-2 text-xs text-slate-400">
@@ -477,10 +520,16 @@ export default function ComposePage() {
               type="email"
               required
               value={to}
-              onChange={(e) => setTo(e.target.value)}
+              onChange={(e) => {
+                setTo(e.target.value);
+                if (fieldErrors.to) setFieldErrors((prev) => ({ ...prev, to: '' }));
+              }}
               placeholder="recipient@domain.com"
-              className="mt-1.5 block w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-lg text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className={`mt-1.5 block w-full px-3.5 py-2.5 bg-slate-950 border ${
+                fieldErrors.to ? 'border-rose-500 ring-1 ring-rose-500' : 'border-slate-700'
+              } rounded-lg text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500`}
             />
+            {fieldErrors.to && <p className="mt-1 text-xs text-rose-400">{fieldErrors.to}</p>}
           </div>
         ) : (
           <div className="space-y-4">
@@ -490,10 +539,16 @@ export default function ComposePage() {
                 type="text"
                 required
                 value={campaignName}
-                onChange={(e) => setCampaignName(e.target.value)}
+                onChange={(e) => {
+                  setCampaignName(e.target.value);
+                  if (fieldErrors.campaignName) setFieldErrors((prev) => ({ ...prev, campaignName: '' }));
+                }}
                 placeholder="E.g. Q4 Product Launch"
-                className="mt-1.5 block w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-lg text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className={`mt-1.5 block w-full px-3.5 py-2.5 bg-slate-950 border ${
+                  fieldErrors.campaignName ? 'border-rose-500 ring-1 ring-rose-500' : 'border-slate-700'
+                } rounded-lg text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500`}
               />
+              {fieldErrors.campaignName && <p className="mt-1 text-xs text-rose-400">{fieldErrors.campaignName}</p>}
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-300">
@@ -503,9 +558,17 @@ export default function ComposePage() {
                 rows={4}
                 required
                 value={campaignRecipientsText}
-                onChange={(e) => setCampaignRecipientsText(e.target.value)}
-                className="mt-1.5 block w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-lg text-sm font-mono text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                onChange={(e) => {
+                  setCampaignRecipientsText(e.target.value);
+                  if (fieldErrors.campaignRecipients) setFieldErrors((prev) => ({ ...prev, campaignRecipients: '' }));
+                }}
+                className={`mt-1.5 block w-full px-3.5 py-2.5 bg-slate-950 border ${
+                  fieldErrors.campaignRecipients ? 'border-rose-500 ring-1 ring-rose-500' : 'border-slate-700'
+                } rounded-lg text-sm font-mono text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500`}
               />
+              {fieldErrors.campaignRecipients && (
+                <p className="mt-1 text-xs text-rose-400">{fieldErrors.campaignRecipients}</p>
+              )}
               <p className="mt-1 text-xs text-slate-500">
                 Telinfy Lookahead Slicing will claim ~50 emails at a time into Redis shards.
               </p>
@@ -520,10 +583,16 @@ export default function ComposePage() {
             type="text"
             required
             value={subject}
-            onChange={(e) => setSubject(e.target.value)}
+            onChange={(e) => {
+              setSubject(e.target.value);
+              if (fieldErrors.subject) setFieldErrors((prev) => ({ ...prev, subject: '' }));
+            }}
             placeholder="Security code or announcement..."
-            className="mt-1.5 block w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-lg text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className={`mt-1.5 block w-full px-3.5 py-2.5 bg-slate-950 border ${
+              fieldErrors.subject ? 'border-rose-500 ring-1 ring-rose-500' : 'border-slate-700'
+            } rounded-lg text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500`}
           />
+          {fieldErrors.subject && <p className="mt-1 text-xs text-rose-400">{fieldErrors.subject}</p>}
         </div>
 
         {/* HTML Body */}
@@ -548,9 +617,17 @@ export default function ComposePage() {
             <textarea
               rows={3}
               value={variablesJson}
-              onChange={(e) => setVariablesJson(e.target.value)}
-              className="mt-1.5 block w-full px-3.5 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs font-mono text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              onChange={(e) => {
+                setVariablesJson(e.target.value);
+                if (fieldErrors.variablesJson) setFieldErrors((prev) => ({ ...prev, variablesJson: '' }));
+              }}
+              className={`mt-1.5 block w-full px-3.5 py-2 bg-slate-950 border ${
+                fieldErrors.variablesJson ? 'border-rose-500 ring-1 ring-rose-500' : 'border-slate-700'
+              } rounded-lg text-xs font-mono text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500`}
             />
+            {fieldErrors.variablesJson && (
+              <p className="mt-1 text-xs text-rose-400">{fieldErrors.variablesJson}</p>
+            )}
           </div>
         )}
 

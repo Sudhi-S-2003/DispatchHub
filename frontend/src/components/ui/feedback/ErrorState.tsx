@@ -5,6 +5,7 @@ interface ErrorStateProps {
   title?: string;
   message: string;
   onRetry?: () => void;
+  retryLabel?: string;
   className?: string;
 }
 
@@ -12,6 +13,7 @@ export const ErrorState: React.FC<ErrorStateProps> = ({
   title = 'Something went wrong',
   message,
   onRetry,
+  retryLabel = 'Try Again',
   className = '',
 }) => {
   return (
@@ -32,7 +34,7 @@ export const ErrorState: React.FC<ErrorStateProps> = ({
           className="mt-1 px-3.5 py-1.5 bg-rose-600/30 hover:bg-rose-600/40 text-rose-200 border border-rose-500/30 text-xs font-semibold rounded-lg transition flex items-center space-x-1.5"
         >
           <RotateCcw className="w-3.5 h-3.5" />
-          <span>Try Again</span>
+          <span>{retryLabel}</span>
         </button>
       )}
     </div>

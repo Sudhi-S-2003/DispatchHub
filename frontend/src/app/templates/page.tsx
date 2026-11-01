@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { templatesApi } from '@/lib/api';
 import { GmailPreview } from '@/components/GmailPreview';
-import { useDialog, useToast, Dialog, EmptyState, LoadingState } from '@/components/ui';
+import { useDialog, useToast, Dialog, EmptyState, LoadingState, ErrorState, ErrorBoundary } from '@/components/ui';
 import {
   FileCode2,
   Plus,
@@ -24,7 +24,9 @@ export default function TemplatesPage() {
 
   const [templates, setTemplates] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Form
   const [name, setName] = useState('');
@@ -41,15 +43,25 @@ export default function TemplatesPage() {
   const [renderedPreviewHtml, setRenderedPreviewHtml] = useState<string>('');
 
   const fetchTemplates = async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setLoading(true);
+    setError(null);
     try {
-      const res = await templatesApi.list();
+      const res = await templatesApi.list(undefined, { signal: controller.signal });
       if (res && res.data) {
         setTemplates(res.data);
       }
     } catch (err: any) {
-      console.error('Failed to load templates:', err);
-      toast.error(err.message || 'Failed to load templates');
+      if (err.name === 'AbortError' || (err.code === 'TIMEOUT_ERROR' && controller.signal.aborted)) {
+        return;
+      }
+      setError(err.userMessage || err.message || 'Failed to load templates');
+      toast.error(err.userMessage || err.message || 'Failed to load templates');
     } finally {
       setLoading(false);
     }
@@ -57,10 +69,30 @@ export default function TemplatesPage() {
 
   useEffect(() => {
     fetchTemplates();
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, []);
 
   const handleCreateTemplate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+
+    if (!name.trim()) {
+      toast.error('Template name is required.');
+      return;
+    }
+    if (!subject.trim()) {
+      toast.error('Template subject is required.');
+      return;
+    }
+    if (!htmlContent.trim()) {
+      toast.error('Template HTML content is required.');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       await templatesApi.create({
@@ -153,6 +185,15 @@ export default function TemplatesPage() {
         {loading ? (
           <div className="col-span-full">
             <LoadingState label="Loading template catalogue..." />
+          </div>
+        ) : error && templates.length === 0 ? (
+          <div className="col-span-full bg-slate-900 border border-slate-800 rounded-2xl p-6">
+            <ErrorState
+              title="Failed to Load Template Library"
+              message={error}
+              retryLabel="Retry"
+              onRetry={fetchTemplates}
+            />
           </div>
         ) : templates.length === 0 ? (
           <div className="col-span-full">
@@ -334,14 +375,15 @@ export default function TemplatesPage() {
 
             {/* Right Column: High-Fidelity Gmail UI Preview */}
             <div className="lg:col-span-8">
-              <GmailPreview
-                sender="dispatch@mail1.postal.test.sudhi.online"
-                senderName="DispatchHub Templates"
-                recipient="sudhiselampa19@gmail.com"
-                subject={previewTemplate.subject || 'Preview Subject'}
-                htmlBody={renderedPreviewHtml || previewTemplate.htmlContent}
-                date={new Date().toLocaleString()}
-              />
+              <ErrorBoundary name="TemplatesGmailPreview">
+                <GmailPreview
+                  sender="dispatch@mail1.postal.test.sudhi.online"
+                  senderName="DispatchHub Templates"
+                  recipient="sudhiselampa19@gmail.com"
+                  subject={previewTemplate.subject || 'Preview Subject'}
+                  htmlBody={renderedPreviewHtml || previewTemplate.htmlContent}
+                />
+              </ErrorBoundary>
             </div>
           </div>
         </Dialog>
