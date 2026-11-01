@@ -79,6 +79,12 @@ export const authApi = {
       body: JSON.stringify({ email, apiKey }),
     }),
   getMe: () => request<any>('/auth/me'),
+  validateSession: (token: string) =>
+    request<any>('/auth/me', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }),
 };
 
 // Analytics API

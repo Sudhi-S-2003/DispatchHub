@@ -4,15 +4,14 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { copyTextToClipboard } from '@/lib/clipboard';
-import { useDialog, useToast } from '@/components/ui';
-import { Wallet, PlusCircle, LogOut, Key, Check, Users, ShieldAlert } from 'lucide-react';
+import { useToast } from '@/components/ui';
+import { AccountSwitcher } from '@/features/auth';
+import { Wallet, PlusCircle, Key, Check } from 'lucide-react';
 
 export default function Topbar() {
-  const { user, logout, quickLoginAs, refreshAccount } = useAuth();
-  const { confirm } = useDialog();
+  const { user } = useAuth();
   const toast = useToast();
   const [copiedKey, setCopiedKey] = useState(false);
-  const [isSwitching, setIsSwitching] = useState(false);
 
   const copyApiKey = async () => {
     if (user?.apiKey) {
@@ -23,31 +22,6 @@ export default function Topbar() {
         setTimeout(() => setCopiedKey(false), 2000);
       }
     }
-  };
-
-  const handleSwitchTenant = async (role: 'admin' | 'client') => {
-    setIsSwitching(true);
-    try {
-      await quickLoginAs(role);
-      toast.success(`Switched role context to ${role.toUpperCase()}`);
-    } catch (err: any) {
-      toast.error(err.message || 'Role switch failed');
-    } finally {
-      setIsSwitching(false);
-    }
-  };
-
-  const handleLogout = async () => {
-    const confirmed = await confirm({
-      title: 'Sign out of DispatchHub?',
-      description: 'You will need to re-authenticate with your credentials or API key to access your dispatch dashboard.',
-      confirmText: 'Sign out',
-      cancelText: 'Stay signed in',
-      variant: 'default',
-    });
-    if (!confirmed) return;
-    logout();
-    toast.info('Signed out of DispatchHub.');
   };
 
   return (
@@ -94,40 +68,8 @@ export default function Topbar() {
           </span>
         </Link>
 
-        {/* Tenant Quick Switcher */}
-        <div className="flex items-center bg-slate-800 p-0.5 rounded-lg border border-slate-700 text-xs">
-          <button
-            onClick={() => handleSwitchTenant('admin')}
-            disabled={isSwitching || user?.role === 'ADMIN'}
-            className={`px-2.5 py-1 rounded font-medium transition ${
-              user?.role === 'ADMIN'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            Admin
-          </button>
-          <button
-            onClick={() => handleSwitchTenant('client')}
-            disabled={isSwitching || user?.role === 'CLIENT'}
-            className={`px-2.5 py-1 rounded font-medium transition ${
-              user?.role === 'CLIENT'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            Client Demo
-          </button>
-        </div>
-
-        {/* Logout */}
-        <button
-          onClick={handleLogout}
-          title="Sign out"
-          className="p-2 text-slate-400 hover:text-rose-400 hover:bg-slate-800/80 rounded-lg transition"
-        >
-          <LogOut className="w-4 h-4" />
-        </button>
+        {/* GitHub-style Multi-Account Switcher & Profile Dropdown */}
+        <AccountSwitcher />
       </div>
     </header>
   );
